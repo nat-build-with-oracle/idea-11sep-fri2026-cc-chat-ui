@@ -23,7 +23,8 @@ Then open **http://127.0.0.1:4318**. Keep the terminal running. This is a local 
 ## What works
 
 - **New chat:** the first message creates a distinct Claude session. Later messages use `claude -p --resume` with that session's UUID.
-- **Projects:** add an existing absolute folder path. Claude runs in that directory using its instructions. A started session's project is locked to preserve context.
+- **Projects = repositories, sessions = threads:** discover repositories under `ghq root`, ordered by recent filesystem activity, with matching Claude threads nested underneath. Search repositories, open real history without importing, or start a new thread. You can still add an existing absolute folder manually; a started session’s project is locked.
+- **Hide repositories:** hover a repository and click the crossed-eye **Hide from sidebar** button (always visible on touch screens). The preference survives refresh in this browser. Expand **Hidden repositories** to restore it. This hides only the sidebar repository row—not files, sessions, search results, or the project selector.
 - **Conversations:** streamed text, compact expandable Activity groups, Stop, model selection, searchable names/messages, Markdown export, and locally saved drafts. Expanded tool rows pair **Command** and **Output** panels, preserve shell text while colorizing tokens, pretty-print JSON, keep plain logs plain, and offer Copy plus a Raw JSON toggle when the original payload differs.
 - **URLs and browser history:** chats, native sessions, source tabs, search filters, and new-chat projects have stable `#/…` URLs. Refresh restores the URL; browser Back/Forward restores navigation without sending a prompt.
 - **Token usage:** completed replies show reported input/output counts, cache read/write breakdown, and estimated USD cost when Claude supplies it. All-model totals include subagents; older main-agent-only counts and historical per-response counts are labeled separately. Missing usage is labeled unavailable; counts are not context-window estimates.
@@ -57,7 +58,7 @@ App metadata and conversation copies are stored in `.local/state.json` (gitignor
 
 The server binds only to `127.0.0.1`, checks Host/Origin, and rejects cross-origin mutation requests. Do not expose it through a public tunnel, reverse proxy, or shared machine account: it has no multi-user authentication. Local storage does **not** mean offline model execution—Claude Code still communicates with Anthropic using your account.
 
-`/?preview=oracle` is an explicitly labeled, non-executable design preview with illustrative conversations. It does not populate live app data. Oracle registry dates shown there are historical, not live presence.
+`/?preview=oracle` is an explicitly labeled, non-executable design preview with illustrative conversations. It does not populate live app data or overwrite your live selected conversation or drafts. Old preview conversation links recover to a new live chat. Oracle registry dates shown there are historical, not live presence.
 
 ## Verify
 
@@ -86,7 +87,8 @@ Born 19:42 +07 from `nat-build-with-oracle/11sep-fri2026-oracle`.
 - Native ownership checks are snapshots. The app fails closed when ownership cannot be checked, but cannot lock an unrelated external Claude process.
 - SDK rename and local app persistence cannot be one cross-store transaction if the local disk fails after a successful native rename.
 - Live session discovery/history were verified; execution, rename, cancellation, and error flows were verified with isolated CLI/SDK fixtures, not a billable live inference turn.
-- Project choices are the Local workspace plus folders explicitly added to this app. The selector does not browse the filesystem or infer global-versus-project scope.
+- Repository discovery uses the configured `ghq root`, caches results for 60 seconds, and returns at most the 1,000 most recently modified repositories found within its traversal budget. It prunes repository contents and common generated/cache folders, supports `.git` files for worktrees, and deduplicates symlink aliases. Recency means directory/top-level-entry mtime, not recursive file activity or git commit time. A visible warning reports truncated scans; manually adding a folder remains available without ghq.
+- Discovery and viewing native threads do not import conversations or register projects. A discovered repository is registered on the first message, keeping its new thread assigned to that repository.
 
 ## Screenshots
 

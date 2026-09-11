@@ -1,4 +1,4 @@
-import type { AppState, Chat, Health, Project, NativeSession, HistoryPage } from './types'
+import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -12,6 +12,7 @@ export async function request<T>(path: string, method = 'GET', body?: unknown): 
 }
 
 export const api = {
+  repositories: () => request<RepositoryInventory>('/repositories'),
   nativeSessions: () => request<{ sessions: NativeSession[] }>('/native-sessions'),
   nativeHistory: (id: string, offset = 0) => request<HistoryPage>(`/native-sessions/${encodeURIComponent(id)}/messages?offset=${offset}&limit=100`),
   importSession: (id: string) => request<Chat>(`/native-sessions/${encodeURIComponent(id)}/import`, 'POST'),

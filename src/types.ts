@@ -1,4 +1,6 @@
-export interface Project { id: string; name: string; path: string; createdAt: string }
+export interface Repository { id: string; name: string; path: string; modifiedAt: number }
+export interface RepositoryInventory { root: string | null; repositories: Repository[]; warning?: string }
+export interface Project { id: string; name: string; path: string; canonicalPath?: string; createdAt: string }
 export interface Tool { id: string; name: string; input: unknown; status: 'running' | 'complete' }
 export interface Usage {
   inputTokens: number; outputTokens: number;
@@ -24,7 +26,7 @@ export interface Health { ok: boolean; claudeAvailable: boolean; claudeVersion: 
 
 export type HistoryBlock = { type: 'text'; text: string } | { type: 'tool'; id: string; name: string; input: unknown; status: 'running' | 'complete' } | { type: 'toolResult'; toolUseId: string; content: unknown; isError?: boolean }
 export interface NativeSession {
-  id: string | null; sessionId: string | null; cwd: string; kind: 'saved' | 'interactive' | 'background';
+  id: string | null; sessionId: string | null; cwd: string; canonicalPath?: string; kind: 'saved' | 'interactive' | 'background';
   name: string | null; pid: number | null; startedAt: number | null; state: string | null; status: string | null;
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
 }

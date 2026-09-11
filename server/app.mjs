@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeRunner } from './claude-runner.mjs';
 import { NativeSessionService } from './native-sessions.mjs';
+import { RepositoryService } from './repositories.mjs';
 import { JsonStore, validateProjectPath } from './store.mjs';
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
@@ -140,6 +141,7 @@ export async function createApp(options = {}) {
   const store = options.store || await new JsonStore({ dataDir: options.dataDir, cwd }).init();
   const runner = options.runner || new ClaudeRunner(options.runnerOptions);
   const nativeSessions = options.nativeSessions || new NativeSessionService(options.nativeSessionOptions);
+  const repositories = options.repositories || new RepositoryService(options.repositoryOptions);
   const configuredDevOrigin = options.devOrigin ?? process.env.DEV_ORIGIN ?? '';
   let devOrigin = '';
   if (configuredDevOrigin) {
@@ -209,7 +211,9 @@ export async function createApp(options = {}) {
   async function startRun(chatId, assistantId, prompt, launch) {
     let done;
     try {
-      if (launch.nativeImported && launch.sessionId) await nativeSessions.resumable(launch.sessionId);
+      // Recheck native ownership immediately before launch, and retain the exact
+      // native cwd even when the sidebar groups symlink aliases as one repo.
+      const native = launch.nativeImported && launch.sessionId ? await nativeSessions.resumable(launch.sessionId) : null;
       const launchState = store.snapshot();
       const chat = findChat(launchState, chatId);
       const assistant = chat.messages.find((message) => message.id === assistantId);
@@ -220,7 +224,7 @@ export async function createApp(options = {}) {
         title: launch.title,
         model: launch.model,
         permissionMode: launch.permissionMode,
-        cwd: launch.cwd,
+        cwd: native ? native.cwd : launch.cwd,
         prompt,
         onUpdate(update) {
           void store.update((state) => {
@@ -252,6 +256,7 @@ export async function createApp(options = {}) {
         const health = await runner.health();
         return json(response, 200, { ok: true, ...health, cwd });
       }
+      if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {
         return json(response, 200, { sessions: await nativeSessions.list() });
       }
@@ -271,8 +276,13 @@ export async function createApp(options = {}) {
         const input = await body(request);
         const projectPath = await validateProjectPath(input.path);
         const project = { id: randomUUID(), name: value(input.name, 'Project name', 200), path: projectPath, createdAt: new Date().toISOString() };
-        await store.update((state) => { state.projects.push(project); return project; });
-        return json(response, 201, project);
+        const saved = await store.update((state) => {
+          const existing = state.projects.find(item => (item.canonicalPath || item.path) === projectPath);
+          if (existing) return existing;
+          state.projects.push(project);
+          return project;
+        });
+        return json(response, saved.id === project.id ? 201 : 200, saved);
       }
       if (request.method === 'POST' && url.pathname === '/api/chats') {
         const input = await body(request);
@@ -304,7 +314,7 @@ export async function createApp(options = {}) {
         const imported = await store.update((state) => {
           const alreadyImported = state.chats.find((chat) => chat.sessionId === native.sessionId);
           if (alreadyImported) return alreadyImported;
-          let project = state.projects.find((item) => item.path === projectPath);
+          let project = state.projects.find((item) => (item.canonicalPath || item.path) === projectPath);
           const now = new Date().toISOString();
           if (!project) {
             project = { id: randomUUID(), name: path.basename(projectPath) || projectPath, path: projectPath, createdAt: now };

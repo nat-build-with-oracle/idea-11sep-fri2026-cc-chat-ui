@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -372,4 +372,68 @@ test('native history pages persist, dedupe concurrent retries, gate sends, and r
   } finally {
     await second.close();
   }
+});
+
+test('repository discovery is read-only and protected by the existing origin boundary', async (t) => {
+  const inventory = { root: '/Code', repositories: [{ id: 'repo-a', name: 'a', path: '/Code/org/a', modifiedAt: 10 }] };
+  const f = await fixture({ repositories: { list: async () => inventory } }); t.after(f.close);
+  const before = (await jsonRequest(`${f.origin}/api/state`)).value;
+  const result = await jsonRequest(`${f.origin}/api/repositories`);
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.value, inventory);
+  assert.deepEqual((await jsonRequest(`${f.origin}/api/state`)).value, before);
+  assert.equal((await jsonRequest(`${f.origin}/api/repositories`, { headers: { origin: 'https://untrusted.example' } })).response.status, 403);
+});
+
+test('registering a discovered repository repeatedly keeps its existing project and threads', async (t) => {
+  const f = await fixture(); t.after(f.close);
+  const original = (await jsonRequest(`${f.origin}/api/state`)).value.projects[0];
+  const options = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Do not overwrite', path: original.path }) };
+  const [first, second] = await Promise.all([jsonRequest(`${f.origin}/api/projects`, options), jsonRequest(`${f.origin}/api/projects`, options)]);
+  assert.equal(first.value.id, original.id);
+  assert.equal(second.value.name, original.name);
+  assert.equal((await jsonRequest(`${f.origin}/api/state`)).value.projects.length, 1);
+});
+
+
+test('project registration deduplicates a symlink alias without changing existing thread IDs', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-alias-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const alias = path.join(directory, 'alias');
+  await symlink(process.cwd(), alias, 'dir');
+  const f = await fixture({ cwd: alias }); t.after(f.close);
+  const original = (await jsonRequest(`${f.origin}/api/state`)).value.projects[0];
+  const post = (projectPath) => jsonRequest(`${f.origin}/api/projects`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Alias', path: projectPath }) });
+  const results = await Promise.all([post(alias), post(await realpath(alias))]);
+  assert.ok(results.every(result => result.response.status === 200 && result.value.id === original.id));
+  assert.equal((await jsonRequest(`${f.origin}/api/state`)).value.projects.length, 1);
+  assert.equal(original.path, alias, 'keep original execution directory for existing projects');
+  assert.equal(original.canonicalPath, await realpath(alias));
+});
+
+test('imported native threads resume from their exact original cwd after canonical project dedupe', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-resume-alias-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const alias = path.join(directory, 'alias');
+  await symlink(process.cwd(), alias, 'dir');
+  const native = { id: 'native', sessionId: 'native-alias', cwd: alias, name: 'Alias session', action: 'resume' };
+  const nativeSessions = {
+    resumable: async () => native,
+    messages: async () => ({ messages: [], nextOffset: null }),
+  };
+  let onLaunch;
+  const launched = new Promise(resolve => { onLaunch = resolve; });
+  class CwdRunner extends FakeRunner {
+    run(options) { onLaunch(options); return super.run(options); }
+  }
+  const runner = new CwdRunner();
+  const f = await fixture({ nativeSessions, runner }); t.after(f.close);
+  const original = (await jsonRequest(`${f.origin}/api/state`)).value.projects[0];
+  const imported = (await jsonRequest(`${f.origin}/api/native-sessions/native-alias/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).value;
+  assert.equal(imported.projectId, original.id);
+  await jsonRequest(`${f.origin}/api/chats/${imported.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'resume' }) });
+  const launch = await launched;
+  await runner.stop(imported.id);
+  assert.equal(launch.cwd, alias);
+  assert.equal(launch.sessionId, native.sessionId);
 });

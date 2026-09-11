@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from '../server/app.mjs';
@@ -151,7 +151,10 @@ await access(path.join(distDir, 'index.html')).catch(() => {
 });
 
 const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-smoke-'));
+const discoveredPath = path.join(dataDir, 'discovered-repo');
+await mkdir(discoveredPath);
 const server = await createServer({
+  repositories: { list: async () => ({ root: dataDir, repositories: [{ id: 'repo-smoke-discovered', name: 'discovered-repo', path: discoveredPath, modifiedAt: Date.now() }, { id: 'repo-smoke-cwd', name: path.basename(cwd), path: cwd, modifiedAt: 1 }] }) },
   cwd,
   dataDir,
   distDir,

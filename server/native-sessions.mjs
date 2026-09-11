@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import * as claudeSdk from '@anthropic-ai/claude-agent-sdk';
 import { normalizeUsage } from './claude-runner.mjs';
 
@@ -174,7 +175,15 @@ export class NativeSessionService {
       }
       else sessions.set(session.sessionId || `active:${session.kind}:${session.id || session.pid}`, session);
     }
-    return [...sessions.values()].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    const result = [...sessions.values()].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+    const paths = new Map();
+    await Promise.all([...new Set(result.map(session => session.cwd))].map(async cwd => {
+      try { paths.set(cwd, await realpath(cwd)); } catch { /* Keep sessions from missing folders. */ }
+    }));
+    for (const session of result) {
+      if (paths.has(session.cwd)) session.canonicalPath = paths.get(session.cwd);
+    }
+    return result;
   }
 
   async #listActive() {

@@ -12,7 +12,7 @@ For developers running this app on a Mac with Claude Code installed; completion 
 
 1. **Start a new chat** — Open [http://127.0.0.1:5173/#/new](http://127.0.0.1:5173/#/new) and select **New chat**.
    - **Expected result:** The page shows **What’s the move?** and a **Message Claude** composer.
-2. **Choose a project (optional)** — Use **Conversation project** and select a configured project.
+2. **Choose a project (optional)** — Use **Conversation project** and select a discovered repository or manually added folder.
    - **Expected result:** The URL becomes `#/new?project=<id>`; the selection survives refresh.
 3. **Send a message** — Enter a prompt and select the arrow **Send message** button.
    - **Expected result:** The app replaces the draft URL with `#/chats/<id>`, streams the reply, and saves the conversation locally.
@@ -24,6 +24,16 @@ For developers running this app on a Mac with Claude Code installed; completion 
    - **Expected result:** Its history opens at a stable `#/sessions/<session-id>` URL; **Resume here** imports it without changing the native session identity.
 7. **Use browser navigation** — Use the browser Back and Forward buttons.
    - **Expected result:** The previous tab, search, or conversation restores without sending a prompt.
+
+## Keep your sidebar tidy
+
+Repositories are discovered under `ghq root` and sorted by filesystem activity. Use **Find a repository** to filter the list; expand a repository to open its real Claude threads.
+
+1. Hover a repository, then select the crossed-eye **Hide from sidebar** button. On touch screens the button is always visible.
+2. Refresh: that repository stays hidden in this browser.
+3. Expand **Hidden repositories**, then select **Restore** to bring it back.
+
+Hiding never deletes repository files or Claude conversations. It affects the sidebar repository list only; the project selector and **Your chats** remain available.
 
 ## Verify
 

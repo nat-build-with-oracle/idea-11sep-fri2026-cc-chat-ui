@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const EMPTY_STATE_VERSION = 1;
@@ -58,6 +58,12 @@ export class JsonStore {
       };
       await this.#write();
     }
+    // Canonical identity is separate from the historical execution path: Claude
+    // may index native transcripts by the original (symlink) working directory.
+    await Promise.all(this.state.projects.map(async (project) => {
+      try { project.canonicalPath = await realpath(project.path); }
+      catch { delete project.canonicalPath; } // Missing folders remain visible.
+    }));
     return this;
   }
 
@@ -99,8 +105,8 @@ export async function validateProjectPath(candidate) {
   try {
     const info = await stat(candidate);
     if (!info.isDirectory()) throw new Error('not a directory');
+    return await realpath(candidate);
   } catch {
     throw Object.assign(new Error('Project path must be an existing directory'), { statusCode: 400 });
   }
-  return path.resolve(candidate);
 }

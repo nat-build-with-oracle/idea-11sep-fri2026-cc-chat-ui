@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { NativeSessionService } from '../server/native-sessions.mjs';
 
 function serviceWith(value, error = null, sdkOverrides = {}) {
@@ -188,4 +191,20 @@ test('an attached interactive record never erases its background agent or active
       await assert.rejects(service.resumable('shared-session'), error => error.statusCode === 409);
     }
   }
+});
+
+
+test('native grouping resolves symlink cwd while SDK history uses its original directory', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'cc-native-alias-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const alias = path.join(directory, 'alias');
+  await symlink(process.cwd(), alias, 'dir');
+  const fixture = serviceWith([], null, {
+    listSessions: async () => [{ sessionId: 'alias-session', cwd: alias, summary: 'Alias', createdAt: 1 }],
+    getSessionMessages: async (id, options) => { assert.equal(options.dir, alias); return []; },
+  });
+  const [session] = await fixture.service.list();
+  assert.equal(session.cwd, alias);
+  assert.equal(session.canonicalPath, await realpath(alias));
+  await fixture.service.messages('alias-session');
 });

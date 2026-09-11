@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, subscribe } from './api'
-import type { AppState, Chat, Health, Message, Model, NativeSession, PermissionMode, Project } from './types'
+import type { AppState, Chat, Health, Message, Model, NativeSession, PermissionMode, RepositoryInventory } from './types'
 import { Icon, ClaudeMark, type IconName } from './Icon'
 import Markdown from './Markdown'
 import Dialog from './Dialog'
@@ -10,12 +10,15 @@ import { buildConversationItems } from './activity-model'
 import { previewState } from './preview'
 import { useBrowserRoute } from './useBrowserRoute'
 import UsageInfo from './UsageInfo'
+import { parseHiddenRepositories, changeRepositoryVisibility } from './repository-visibility'
+import { initialRoute, recoverChatRoute } from './route-recovery'
+import { buildWorkspaceRepositories, type WorkspaceRepository } from './workspace-model'
 import { sessionGroup, sessionGroups, sessionsForTab } from './session-list'
 
 const preview = new URLSearchParams(window.location.search).get('preview') === 'oracle'
 const modelNames: Record<Model, string> = { sonnet: 'Claude Sonnet', opus: 'Claude Opus', haiku: 'Claude Haiku' }
 function stored(key: string, fallback = '') { try { return localStorage.getItem(`cc:${key}`) ?? fallback } catch { return fallback } }
-function remember(key: string, value: string) { try { localStorage.setItem(`cc:${key}`, value) } catch { /* Storage may be unavailable in private browsing. */ } }
+function remember(key: string, value: string) { if (preview) return; try { localStorage.setItem(`cc:${key}`, value) } catch { /* Storage may be unavailable in private browsing. */ } }
 function timeLabel(date: string) { const value = new Date(date); return Number.isNaN(value.valueOf()) ? '' : value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Something went wrong. Please try again.' }
 function IconButton({ icon, label, onClick, active, disabled }: { icon: IconName; label: string; onClick: () => void; active?: boolean; disabled?: boolean }) {
@@ -26,9 +29,8 @@ function MessageBody({ message }: { message: Message }) {
 }
 
 export default function App() {
-  const { route, navigate, version: navigation } = useBrowserRoute(() => preview
-    ? { view: 'chat', chatId: 'preview-0' }
-    : stored('selected') ? { view: 'chat', chatId: stored('selected') } : { view: 'new', projectId: stored('project') || null })
+  const fromRememberedSelection = useRef(!window.location.hash)
+  const { route, navigate, version: navigation } = useBrowserRoute(() => initialRoute(preview, stored('selected'), stored('project')))
   const view = route.view === 'new' ? 'chat' : route.view
   const selectedId = route.view === 'chat' ? route.chatId : null
   const filter = route.view === 'agents' || route.view === 'native' ? route.search : ''
@@ -41,6 +43,13 @@ export default function App() {
   const [projectId, setProjectId] = useState(preview ? 'mother-oracle' : route.view === 'new' ? route.projectId || '' : stored('project'))
   const [model, setModel] = useState<Model>('sonnet')
   const [permission, setPermission] = useState<PermissionMode>('bypassPermissions')
+  const [repositoryInventory, setRepositoryInventory] = useState<RepositoryInventory>({ root: null, repositories: [] })
+  const [repositoriesLoading, setRepositoriesLoading] = useState(!preview)
+  const [hiddenRepositories, setHiddenRepositories] = useState(() => preview ? new Set<string>() : parseHiddenRepositories(stored('hidden-repositories', '[]')))
+  const [repositorySearch, setRepositorySearch] = useState('')
+  const [repositoryLimit, setRepositoryLimit] = useState(20)
+  const repositoryRequest = useRef(0)
+  const [nativeListLoaded, setNativeListLoaded] = useState(preview)
   const [nativeSessions, setNativeSessions] = useState<NativeSession[]>([])
   const [native, setNative] = useState<NativeSession | null>(null)
   const [nativeMessages, setNativeMessages] = useState<Message[]>([])
@@ -56,7 +65,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(preview ? previewState.projects.slice(1).map(item => item.id) : []))
+  const [projectExpansion, setProjectExpansion] = useState<Record<string, boolean>>({})
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set())
   const [modal, setModal] = useState<'project' | 'search' | 'rename' | 'settings' | 'remove' | null>(null)
   const [titleInput, setTitleInput] = useState('')
   const [newTitle, setNewTitle] = useState('')
@@ -68,8 +78,11 @@ export default function App() {
   const nearBottom = useRef(true)
   const sseSeen = useRef(false)
   const chat = view === 'chat' ? state.chats.find(item => item.id === selectedId) ?? null : null
-  const selectedProject = state.projects.find(item => item.id === (chat ? chat.projectId : projectId))
-  const missingNewProject = loaded && route.view === 'new' && Boolean(route.projectId) && !selectedProject
+  const repositoryRows = useMemo(() => buildWorkspaceRepositories(state.projects, repositoryInventory.repositories, nativeSessions, state.chats), [state.projects, repositoryInventory.repositories, nativeSessions, state.chats])
+  const matchingRepositories = repositoryRows.filter(repo => !hiddenRepositories.has(repo.path.replace(/\/+$/, '') || '/') && `${repo.name} ${repo.path}`.toLowerCase().includes(repositorySearch.toLowerCase()))
+  const visibleRepositories = matchingRepositories.slice(0, repositorySearch ? undefined : repositoryLimit)
+  const selectedProject = repositoryRows.find(item => item.aliases.includes((chat ? chat.projectId : projectId) || ''))
+  const missingNewProject = loaded && !repositoriesLoading && route.view === 'new' && Boolean(route.projectId) && !selectedProject
   const currentModel = chat?.model ?? model
   const currentPermission = chat?.permissionMode ?? permission
   const running = chat?.status === 'running'
@@ -91,6 +104,7 @@ export default function App() {
   }, [])
   useEffect(() => {
     setError(''); setModal(null); setDetailsOpen(false); setSidebarOpen(false); nearBottom.current = true
+    if (preview) return
     if (route.view === 'chat') {
       remember('selected', route.chatId); setDraft(stored(`draft:${route.chatId}`))
     } else if (route.view === 'new') {
@@ -98,7 +112,13 @@ export default function App() {
       remember('selected', ''); remember('project', id); setProjectId(id); setNewTitle(''); setDraft(stored(`draft:new:${id}`))
     }
   }, [route])
-  useEffect(() => { if (view === 'agents') void refreshNative() }, [view])
+  useEffect(() => { void refreshRepositories() }, [])
+  useEffect(() => { void refreshNative() }, [view === 'agents'])
+  useEffect(() => {
+    if (preview || !loaded || chat) return
+    const fallback = recoverChatRoute(route, state.chats, nativeSessions, nativeListLoaded && fromRememberedSelection.current && navigation.current === 0)
+    if (fallback) { navigate(fallback, true); setToast('Opened your live workspace instead of an unavailable link') }
+  }, [route, loaded, chat, state.chats, nativeSessions, nativeListLoaded, navigate])
   const nativeRouteId = route.view === 'native' ? route.sessionId : null
   useEffect(() => {
     if (!nativeRouteId || preview) return
@@ -147,17 +167,33 @@ export default function App() {
     navigate({ view: 'chat', chatId: item.id }, replace)
   }
   function newChat(targetProjectId = projectId) {
-    if (preview) { window.location.href = '/'; return }
+    if (preview) { window.location.href = '/#/new'; return }
     navigate({ view: 'new', projectId: targetProjectId || null })
     requestAnimationFrame(() => composer.current?.focus())
+  }
+  async function refreshRepositories() {
+    if (preview) return
+    const requestId = ++repositoryRequest.current
+    setRepositoriesLoading(true)
+    try { const data = await api.repositories(); if (requestId === repositoryRequest.current) setRepositoryInventory(data) }
+    catch (reason) { if (requestId === repositoryRequest.current) setRepositoryInventory(previous => ({ ...previous, warning: errorMessage(reason) })) }
+    finally { if (requestId === repositoryRequest.current) setRepositoriesLoading(false) }
   }
   async function refreshNative() {
     if (preview) return
     const requestId = ++nativeListRequest.current
     setNativeListLoading(true); setNativeError('')
-    try { const data = await api.nativeSessions(); if (requestId === nativeListRequest.current) setNativeSessions(data.sessions) }
+    try { const data = await api.nativeSessions(); if (requestId === nativeListRequest.current) { setNativeSessions(data.sessions); setNativeListLoaded(true) } }
     catch (reason) { if (requestId === nativeListRequest.current) setNativeError(errorMessage(reason)) }
     finally { if (requestId === nativeListRequest.current) setNativeListLoading(false) }
+  }
+  async function ensureProject(id: string) {
+    if (!id || state.projects.some(project => project.id === id)) return id
+    const repo = repositoryRows.find(item => item.aliases.includes(id))
+    if (!repo) throw new Error('Repository is no longer available. Refresh the repository list.')
+    const project = await api.addProject(repo.name, repo.path)
+    setState(previous => ({ ...previous, projects: [...previous.projects.filter(item => item.id !== project.id), project] }))
+    return project.id
   }
   function showAgents() { navigate({ view: 'agents', tab: sessionTab, search: view === 'native' ? filter : '' }) }
   function selectNative(item: NativeSession) {
@@ -221,7 +257,8 @@ export default function App() {
     try {
       let target = chat
       if (!target) {
-        target = await api.createChat({ title: newTitle || content.split('\n')[0].slice(0, 80), projectId: projectId || null, model, permissionMode: permission }); applyChat(target)
+        const savedProjectId = await ensureProject(projectId)
+        target = await api.createChat({ title: newTitle || content.split('\n')[0].slice(0, 80), projectId: savedProjectId || null, model, permissionMode: permission }); applyChat(target)
         if (requestId === navigation.current) { remember(`draft:${target.id}`, draft); selectChat(target, true); requestId = navigation.current }
       }
       applyChat(await api.send(target.id, content))
@@ -236,7 +273,7 @@ export default function App() {
       if (busy) return
       const requestId = navigation.current
       setBusy(true)
-      try { applyChat(await api.updateChat(chat.id, { [field]: value || null })) } catch (reason) { if (requestId === navigation.current) setError(errorMessage(reason)) } finally { setBusy(false) }
+      try { const selected = field === 'projectId' ? await ensureProject(value) : value; applyChat(await api.updateChat(chat.id, { [field]: selected || null })) } catch (reason) { if (requestId === navigation.current) setError(errorMessage(reason)) } finally { setBusy(false) }
     }
     else if (field === 'projectId') { remember(`draft:new:${projectId}`, draft); navigate({ view: 'new', projectId: value || null }, true) }
     else if (field === 'model') setModel(value as Model)
@@ -294,13 +331,23 @@ export default function App() {
     const text = `# ${currentTitle}\n\n${messages.map(message => `## ${message.role === 'user' ? 'You' : 'Claude'}\n\n${message.content}`).join('\n\n')}`
     const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = `${currentTitle.replace(/[^\p{L}\p{N}\s_-]/gu, '').slice(0, 80) || 'conversation'}.md`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  function projectRow(project: Project) {
-    const children = state.chats.filter(item => item.projectId === project.id)
-    const isCollapsed = collapsed.has(project.id)
-    return <div className="project-group" key={project.id}>
-      <button className="project-row" title={project.path} aria-expanded={!isCollapsed} onClick={() => setCollapsed(previous => { const next = new Set(previous); if (next.has(project.id)) next.delete(project.id); else next.add(project.id); return next })}><Icon name="chevron" size={13} className={!isCollapsed ? 'turn-down' : ''} /><Icon name="folder" /><span className="truncate">{project.name}</span></button>
-      {!isCollapsed && children.map(item => <button key={item.id} className={`chat-row nested ${chat?.id === item.id ? 'selected' : ''}`} onClick={() => selectChat(item)} title={item.title}><Icon name="file" size={16} /><span className="truncate">{item.title}</span>{item.status === 'running' && <span className="activity-dot" />}</button>)}
-      {!isCollapsed && !children.length && <button className="project-empty" onClick={() => newChat(project.id)}>Start a conversation</button>}
+  function changeVisibility(path: string, hidden: boolean) {
+    const next = changeRepositoryVisibility(hiddenRepositories, path, hidden)
+    setHiddenRepositories(next); remember('hidden-repositories', JSON.stringify([...next]))
+    if (hidden) setToast('Repository hidden from sidebar. Restore it under Hidden repositories.')
+  }
+  function projectRow(repo: WorkspaceRepository) {
+    const currentThread = repo.chats.some(item => item.id === selectedId) || repo.sessions.some(item => item.sessionId === nativeRouteId)
+    const isCollapsed = !(projectExpansion[repo.id] ?? (currentThread || (preview ? repo.id === 'mother-oracle' : repositoryRows.indexOf(repo) < 3)))
+    const threads = expandedThreads.has(repo.id) ? repo.sessions : repo.sessions.slice(0, 5)
+    return <div className="project-group" key={repo.id} data-repository-path={repo.path}>
+      <div className="project-heading"><button className="project-row" title={repo.path} aria-expanded={!isCollapsed} onClick={() => setProjectExpansion(previous => ({ ...previous, [repo.id]: isCollapsed }))}><Icon name="chevron" size={13} className={!isCollapsed ? 'turn-down' : ''} /><Icon name="folder" /><span className="truncate">{repo.name}</span><span className="repo-thread-count">{repo.chats.length + repo.sessions.length || ''}</span></button>{!preview && <button className="repository-hide icon-button" aria-label={`Hide ${repo.name} from sidebar`} title="Hide from sidebar" onClick={() => changeVisibility(repo.path, true)}><Icon name="eyeOff" size={15} /></button>}</div>
+      {!isCollapsed && <>
+        {repo.chats.map(item => <button key={item.id} className={`chat-row nested ${chat?.id === item.id ? 'selected' : ''}`} onClick={() => selectChat(item)} title={item.title}><Icon name="file" size={16} /><span className="truncate">{item.title}</span>{item.status === 'running' && <span className="activity-dot" />}</button>)}
+        {threads.map(item => <button key={item.sessionId} data-native-thread={item.sessionId} className={`chat-row nested ${nativeRouteId === item.sessionId ? 'selected' : ''}`} onClick={() => selectNative(item)} title={`${item.name || 'Untitled thread'} · ${item.action === 'resume' ? 'Saved Claude thread' : 'Active in Claude Code'}`}><Icon name="file" size={16} /><span className="truncate">{item.name || 'Untitled thread'}</span>{item.action !== 'resume' && <Icon name="lock" size={12} />}</button>)}
+        {repo.sessions.length > threads.length && <button className="project-empty" onClick={() => setExpandedThreads(previous => new Set(previous).add(repo.id))}>Show {repo.sessions.length - threads.length} more threads</button>}
+        <button className="project-empty" onClick={() => newChat(repo.id)}>{repo.chats.length || repo.sessions.length ? '+ New thread' : 'Start a conversation'}</button>
+      </>}
     </div>
   }
 
@@ -309,7 +356,13 @@ export default function App() {
     <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} aria-label="Workspace navigation">
       <div className="brand-row"><button className="brand" onClick={() => newChat()}><ClaudeMark /><span>Claude Code</span></button><IconButton icon="search" label="Search conversations (⌘K)" onClick={() => { setSearch(''); setModal('search') }} /><span className="mobile-only"><IconButton icon="close" label="Close sidebar" onClick={() => setSidebarOpen(false)} /></span></div>
       <div className="primary-nav"><button className={`new-chat ${route.view === 'new' ? 'selected' : ''}`} aria-current={route.view === 'new' ? 'page' : undefined} onClick={() => newChat()}><Icon name="new" size={21} /><span>New chat</span><span className="shortcut">⇧⌘O</span></button>{!preview && <button className={`agents-nav ${view !== 'chat' ? 'selected' : ''}`} aria-current={view !== 'chat' ? 'page' : undefined} onClick={showAgents}><Icon name="agents" size={20} /><span>Your chats</span><Icon name="chevron" size={14} /></button>}</div>
-      <nav className="sidebar-scroll"><section className="projects"><div className="section-label"><span>Projects</span><IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></div>{state.projects.map(projectRow)}{!loaded && <div className="skeleton-lines" aria-label="Loading projects"><i /><i /><i /></div>}</section>
+      <nav className="sidebar-scroll"><section className="projects"><div className="section-label"><span>Projects</span><span className="repository-actions">{!preview && <IconButton icon="refresh" label="Refresh repositories and threads" onClick={() => { void refreshRepositories(); void refreshNative() }} disabled={repositoriesLoading || nativeListLoading} />}<IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></span></div>
+          {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositoryInventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'}</p><input className="repository-filter" aria-label="Find a repository" placeholder="Find a repository…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
+          {visibleRepositories.map(projectRow)}{!loaded && <div className="skeleton-lines" aria-label="Loading projects"><i /><i /><i /></div>}
+          {!repositorySearch && matchingRepositories.length > repositoryLimit && <button className="repository-more" onClick={() => setRepositoryLimit(limit => limit + 20)}>Show more repositories ({matchingRepositories.length - repositoryLimit})</button>}
+          {repositorySearch && !matchingRepositories.length && <p className="sidebar-empty">No visible repositories match.</p>}
+          {!preview && hiddenRepositories.size > 0 && <details className="hidden-repositories"><summary>Hidden repositories ({hiddenRepositories.size})</summary><p>Hidden here, not deleted. Files and threads are untouched.</p>{[...hiddenRepositories].map(path => <div className="hidden-repository-row" key={path}><span className="truncate" title={path}>{repositoryRows.find(repo => repo.path === path)?.name || path.split('/').pop() || path}</span><button className="subtle-button" aria-label={`Restore ${path.split('/').pop()} to sidebar`} onClick={() => changeVisibility(path, false)}>Restore</button></div>)}</details>}
+        </section>
         <section className="recents"><div className="section-label"><span>Picked up here</span></div>{state.chats.map(item => <button key={item.id} className={`chat-row ${chat?.id === item.id && !preview ? 'selected' : ''}`} onClick={() => selectChat(item)} title={item.title}><Icon name="file" size={17} /><span className="truncate">{item.title}</span>{item.status === 'running' && <span className="activity-dot" />}</button>)}{loaded && !state.chats.length && <p className="sidebar-empty">A fresh start. Your next chat goes here.<button onClick={showAgents}>Find your other chats <Icon name="chevron" size={12} /></button></p>}</section>
       </nav>
       <footer className="sidebar-footer"><div><span className={`status-dot ${connected ? '' : 'offline'}`} /><span>{connected ? 'Local on this Mac' : 'Reconnecting…'}</span><IconButton icon="settings" label="Workspace settings" onClick={() => { setError(''); setModal('settings') }} /></div>{preview ? <a href="/" className="preview-caption">Design preview · example conversations</a> : <span className="local-caption">Your conversations stay on your Mac</span>}</footer>
@@ -341,7 +394,7 @@ export default function App() {
             <p className="agents-note">Real sessions from your Mac. Looking to message another agent? Ask Claude to <code>/list-agents</code> first.</p>
           </section> : <>
             <div className="conversation-scroll" ref={scroller} onScroll={event => { const node = event.currentTarget; nearBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100 }}>
-              {selectedId && !chat ? <div className="list-empty"><h2>{loaded ? 'Conversation not found' : 'Loading conversation…'}</h2>{loaded && <><p>It may have been removed from this workspace.</p><button className="subtle-button" onClick={showAgents}>Go to Your chats</button></>}</div> : messages.length ? <div className="conversation" aria-label="Conversation">{conversationItems.map(item => {
+              {selectedId && !chat ? <div className="list-empty"><h2>{loaded ? 'Conversation not found' : 'Loading conversation…'}</h2>{loaded && <><p>This link is not in your local workspace. Pick a thread from the sidebar or start a new chat.</p><button className="subtle-button" onClick={() => newChat()}>New chat</button><button className="subtle-button" onClick={showAgents}>Go to Your chats</button></>}</div> : messages.length ? <div className="conversation" aria-label="Conversation">{conversationItems.map(item => {
                 if (item.type === 'activity') return <Fragment key={item.key}><Activity item={item} />{item.usageEntries?.map(entry => <UsageInfo key={entry.messageId} usage={entry.usage} />)}</Fragment>
                 const message = item.message
                 const toolOnly = Boolean(message.history?.blocks.length && message.history.blocks.every(block => block.type !== 'text'))
@@ -357,7 +410,7 @@ export default function App() {
               {!messages.length && <p className="composer-explainer"><Icon name="info" size={14} />New chat creates a new Claude session.</p>}
               {chat?.historyUnavailable && <p className="composer-explainer">Earlier history is unavailable. New replies will be saved here.</p>}
               {importedHistoryPending && <p className="composer-explainer">Load more conversation history before continuing this imported session to keep its messages in order.</p>}
-              <form className="composer" onSubmit={send}><div className="project-picker"><Icon name="folder" /><select aria-label="Conversation project" value={chat ? chat.projectId || '' : projectId} onChange={event => void setOption('projectId', event.target.value)} disabled={Boolean(chat?.sessionId) || preview || running || busy}><option value="">Local workspace</option>{missingNewProject && <option value={projectId} disabled>Project unavailable</option>}{state.projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><Icon name="chevron" size={12} className="turn-down" /><span className="project-path" title={selectedProject?.path}>{chat?.sessionId ? 'Session project' : ''}</span></div>
+              <form className="composer" onSubmit={send}><div className="project-picker"><Icon name="folder" /><select aria-label="Conversation project" value={selectedProject?.id || (chat ? chat.projectId || '' : projectId)} onChange={event => void setOption('projectId', event.target.value)} disabled={Boolean(chat?.sessionId) || preview || running || busy}><option value="">Local workspace</option>{missingNewProject && <option value={projectId} disabled>Project unavailable</option>}{repositoryRows.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><Icon name="chevron" size={12} className="turn-down" /><span className="project-path" title={selectedProject?.path}>{chat?.sessionId ? 'Session project' : ''}</span></div>
                 <div className="composer-input"><textarea ref={composer} value={draft} onChange={event => changeDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={importedHistoryPending ? 'Load the remaining history before continuing…' : 'Got an idea? Let’s make it happen…'} aria-label="Message Claude" rows={2} disabled={preview || busy || importedHistoryPending} />
                   {draft.startsWith('/') && <p className="slash-hint"><code>/rename title</code> names this conversation · <code>/list-agents</code> asks Claude to discover peers</p>}
                   <div className="composer-toolbar"><IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setModal('project') }} disabled={preview || busy} /><label className={`permission-picker ${currentPermission === 'bypassPermissions' ? 'full-access' : ''}`} title={currentPermission === 'bypassPermissions' ? 'Full access bypasses Claude permission prompts. Only use with trusted projects.' : 'Claude default permissions; non-interactive requests cannot show approval dialogs.'}><Icon name={currentPermission === 'bypassPermissions' ? 'shield' : 'lock'} size={17} /><select aria-label="Permission mode" value={currentPermission} onChange={event => void setOption('permissionMode', event.target.value)} disabled={preview || running || busy}><option value="bypassPermissions">Full access</option><option value="default">Default permissions</option></select></label><div className="composer-spacer" /><label className="model-picker"><select aria-label="Claude model" value={currentModel} onChange={event => void setOption('model', event.target.value)} disabled={preview || running || busy}>{Object.entries(modelNames).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><Icon name="chevron" size={12} className="turn-down" /></label>{running ? <button type="button" className="send-button stop-button" aria-label="Stop Claude" onClick={() => void stopChat()}><Icon name="stop" size={16} /></button> : <button type="submit" className="send-button" aria-label="Send message" disabled={!preview && (!draft.trim() || busy || importedHistoryPending || missingNewProject || !connected)} title={preview ? 'Design preview only' : 'Send message (Enter)'}><Icon name="arrow" size={21} /></button>}</div>
