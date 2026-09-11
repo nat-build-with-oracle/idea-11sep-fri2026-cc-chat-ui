@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.local/
+*.tsbuildinfo
+.DS_Store
+.impeccable/review/
+
+# local design/review artifacts
+.impeccable/
+ψ/

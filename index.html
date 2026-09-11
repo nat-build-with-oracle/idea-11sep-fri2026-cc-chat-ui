@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f5fc" />
+    <script data-appearance-bootstrap>
+      (() => {
+        const themes = ['pop', 'light', 'dark']
+        const textSizes = ['comfortable', 'large']
+        const themeColors = { pop: '#f5f5fc', light: '#f8fafc', dark: '#171923' }
+        let value = {}
+        try { value = JSON.parse(localStorage.getItem('cc:appearance') || '{}') }
+        catch { /* Use the readable defaults when storage is unavailable or malformed. */ }
+        const theme = themes.includes(value?.theme) ? value.theme : 'pop'
+        const textSize = textSizes.includes(value?.textSize) ? value.textSize : 'comfortable'
+        document.documentElement.dataset.theme = theme
+        document.documentElement.dataset.textSize = textSize
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themeColors[theme])
+      })()
+    </script>
+    <meta name="description" content="A local workspace for your Claude Code conversations." />
+    <title>Claude Code — Local workspace</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+</html>
