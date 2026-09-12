@@ -23,14 +23,19 @@ export async function resolveDmgPath({ argument, configPath = DEFAULT_CONFIG } =
   if (typeof config.productName !== 'string' || !config.productName.trim()) {
     throw new Error(`Missing productName in ${configPath}`);
   }
+  const versionPattern = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+  if (typeof config.version !== 'string' || !versionPattern.test(config.version)) {
+    throw new Error(`Missing or unsupported version in ${configPath}; pass an explicit DMG path instead`);
+  }
   const directory = path.join(path.dirname(configPath), 'target', 'release', 'bundle', 'dmg');
   let entries;
   try { entries = await readdir(directory, { withFileTypes: true }); }
   catch { throw new Error(`DMG output directory does not exist: ${directory}`); }
-  const prefixes = [config.productName, config.productName.replaceAll(' ', '_')];
+  const prefixes = [config.productName, config.productName.replaceAll(' ', '_')]
+    .map((productName) => `${productName}_${config.version}_`);
   const candidates = entries
     .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === '.dmg')
-    .filter((entry) => prefixes.some((prefix) => entry.name.startsWith(`${prefix}_`)))
+    .filter((entry) => prefixes.some((prefix) => entry.name.startsWith(prefix)))
     .map((entry) => path.join(directory, entry.name));
   if (candidates.length !== 1) {
     throw new Error(`Expected exactly one DMG for ${config.productName} in ${directory}, found ${candidates.length}`);
@@ -50,11 +55,15 @@ export async function finalizeDmg(dmgPath, { runCommand = run, platform = proces
   const replacement = path.join(temporary, 'replacement.dmg');
   const mount = path.join(temporary, 'mount');
   let attached = false;
+  let attachAttempted = false;
+  let attachCompleted = false;
   let operationError = null;
   try {
     await runCommand('hdiutil', ['convert', original, '-format', 'UDRW', '-o', writable]);
     await mkdir(mount);
+    attachAttempted = true;
     await runCommand('hdiutil', ['attach', writable, '-mountpoint', mount, '-nobrowse', '-noautoopen', '-owners', 'on', '-private']);
+    attachCompleted = true;
     attached = true;
     await rm(path.join(mount, '.VolumeIcon.icns'), { force: true });
     const located = await runCommand('xcrun', ['--find', 'SetFile']);
@@ -80,6 +89,11 @@ export async function finalizeDmg(dmgPath, { runCommand = run, platform = proces
         if (operationError) operationError.message = `${operationError.message}; ${detail}`;
         else operationError = new Error(detail, { cause: detachError });
       }
+    } else if (attachAttempted && !attachCompleted) {
+      safeToRemove = false;
+      const detail = `attach did not complete; temporary files retained at ${temporary} because mount state is unknown`;
+      if (operationError) operationError.message = `${operationError.message}; ${detail}`;
+      else operationError = new Error(detail);
     }
     if (safeToRemove) await rm(temporary, { recursive: true, force: true });
   }

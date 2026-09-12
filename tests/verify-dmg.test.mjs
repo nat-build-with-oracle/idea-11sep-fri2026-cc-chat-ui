@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { resolveDmgPath } from '../scripts/finalize-dmg.mjs';
 import { mountedPathsForDmg, runCli, unmountExistingDmg, verifyDmg } from '../scripts/verify-dmg.mjs';
 
 async function fixture(t, name) {
@@ -110,6 +111,29 @@ test('verification rejects a volume icon and retains the mounted tree when detac
   await rm(temporary, { recursive: true, force: true });
 });
 
+test('verification retains the temporary tree when attach fails with unknown mount state', async (t) => {
+  const { dmg, configPath } = await fixture(t, 'partial-attach');
+  let temporary;
+  await assert.rejects(verifyDmg(dmg, {
+    platform: 'darwin',
+    configPath,
+    makeTemporaryDirectory: async (prefix) => {
+      temporary = await mkdtemp(prefix);
+      return temporary;
+    },
+    runCommand: async (command, args) => {
+      if (command === 'hdiutil' && args[0] === 'attach') {
+        const mount = args[args.indexOf('-mountpoint') + 1];
+        await writeFile(path.join(mount, 'partial'), 'possibly mounted');
+        throw new Error('attach returned nonzero');
+      }
+      return { stdout: '' };
+    },
+  }), /attach returned nonzero; attach did not complete; temporary mount retained at .*mount state is unknown/);
+  assert.equal(await readFile(path.join(temporary, 'mount', 'partial'), 'utf8'), 'possibly mounted');
+  await rm(temporary, { recursive: true, force: true });
+});
+
 test('verification rejects extra visible items', async (t) => {
   const { dmg, configPath } = await fixture(t, 'bad-layout');
   const populate = async (mount) => {
@@ -157,6 +181,25 @@ test('CLI unmount mode is a no-op for a clean build without an output DMG', asyn
   });
   assert.deepEqual(result, { action: 'unmount', dmg: null, mountPoints: [] });
   assert.equal(unmounted, false);
+});
+
+test('CLI unmount mode leaves stale old-version artifacts untouched when no current DMG exists', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'verify-dmg-stale-output-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = path.join(root, 'tauri.conf.json');
+  const output = path.join(root, 'target', 'release', 'bundle', 'dmg');
+  const stale = path.join(output, 'Product_0.9.0_aarch64.dmg');
+  await mkdir(output, { recursive: true });
+  await writeFile(configPath, JSON.stringify({ productName: 'Product', version: '1.0.0' }));
+  await writeFile(stale, 'stale image');
+  let unmounted = false;
+  const result = await runCli(['--unmount-existing'], {
+    resolvePath: ({ argument }) => resolveDmgPath({ argument, configPath }),
+    unmount: async () => { unmounted = true; },
+  });
+  assert.deepEqual(result, { action: 'unmount', dmg: null, mountPoints: [] });
+  assert.equal(unmounted, false);
+  assert.equal((await readdir(output)).includes(path.basename(stale)), true);
 });
 
 test('CLI open verifies before unmounting the same artifact and opening it', async () => {

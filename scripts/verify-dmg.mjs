@@ -82,16 +82,20 @@ export async function verifyDmg(dmgPath, {
   const temporary = await makeTemporaryDirectory(path.join(os.tmpdir(), 'verify-dmg-'));
   const mount = path.join(temporary, 'mount');
   let attached = false;
+  let attachAttempted = false;
+  let attachCompleted = false;
   let operationError = null;
 
   try {
     await runCommand('hdiutil', ['verify', resolvedDmg]);
     await mkdir(mount);
+    attachAttempted = true;
     await runCommand('hdiutil', [
       'attach', resolvedDmg,
       '-readonly', '-mountpoint', mount,
       '-nobrowse', '-noautoopen', '-private',
     ]);
+    attachCompleted = true;
     attached = true;
 
     const entries = await readdir(mount);
@@ -126,6 +130,11 @@ export async function verifyDmg(dmgPath, {
         if (operationError) operationError.message = `${operationError.message}; ${detail}`;
         else operationError = new Error(detail, { cause: detachError });
       }
+    } else if (attachAttempted && !attachCompleted) {
+      safeToRemove = false;
+      const detail = `attach did not complete; temporary mount retained at ${temporary} because mount state is unknown`;
+      if (operationError) operationError.message = `${operationError.message}; ${detail}`;
+      else operationError = new Error(detail);
     }
     if (safeToRemove) await rm(temporary, { recursive: true, force: true });
   }

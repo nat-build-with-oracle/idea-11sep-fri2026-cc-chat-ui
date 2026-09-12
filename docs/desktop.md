@@ -14,7 +14,7 @@ just desktop-build
 just desktop-open
 ```
 
-`desktop-build` safely unmounts a stale mounted copy of this product, runs the Tauri build and DMG finalizer, then verifies the finished image. `desktop-open` verifies that same finalized DMG again before opening it; it never opens Tauri's intermediate image. For a read-only check without rebuilding or opening Finder, run `just desktop-verify`.
+`desktop-build` safely unmounts a stale mounted copy of this product, runs the Tauri build and DMG finalizer, then verifies the finished image. `desktop-open` verifies that same finalized DMG again before opening it; it never opens Tauri's intermediate image. For a read-only check without rebuilding or opening Finder, run `just desktop-verify`. Discovery selects only the configured release version; older DMGs are left untouched.
 
 The app bundle is produced under `src-tauri/target/release/bundle/macos/`; the finalized DMG is produced under `src-tauri/target/release/bundle/dmg/`. Verification checks the configured app/Applications icon alignment, confirms the mounted installer contains the app and Applications shortcut, and rejects a visible `.VolumeIcon.icns`.
 

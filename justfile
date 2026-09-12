@@ -8,7 +8,7 @@ desktop-build:
 
 # Read-only verification of the finalized installer and its configured icon alignment.
 desktop-verify:
-    node --test tests/dmg.test.mjs
+    node --test tests/dmg.test.mjs tests/verify-dmg.test.mjs
     node scripts/verify-dmg.mjs
 
 # Never open Tauri's intermediate image; verification resolves and opens the finalized DMG.

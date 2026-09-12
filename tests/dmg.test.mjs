@@ -23,15 +23,32 @@ test('DMG discovery uses productName and rejects ambiguous build artifacts', asy
   const configPath = path.join(root, 'tauri.conf.json');
   const output = path.join(root, 'target', 'release', 'bundle', 'dmg');
   await mkdir(output, { recursive: true });
-  await writeFile(configPath, JSON.stringify({ productName: 'Long Product Name' }));
+  await writeFile(configPath, JSON.stringify({ productName: 'Long Product Name', version: '1.0.0' }));
   const expected = path.join(output, 'Long Product Name_1.0.0_aarch64.dmg');
   await writeFile(expected, 'first');
   await writeFile(path.join(output, 'Unrelated_1.0.0_aarch64.dmg'), 'ignored');
+  await writeFile(path.join(output, 'Long Product Name_0.9.0_aarch64.dmg'), 'stale');
 
   assert.equal(await resolveDmgPath({ configPath }), expected);
   assert.equal(await resolveDmgPath({ argument: expected }), expected);
   await writeFile(path.join(output, 'Long_Product_Name_1.0.0_x64.dmg'), 'second');
   await assert.rejects(resolveDmgPath({ configPath }), /exactly one DMG.*found 2/);
+});
+
+test('DMG discovery fails closed when config version cannot identify the current artifact', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-dmg-version-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configPath = path.join(root, 'tauri.conf.json');
+  const explicit = path.join(root, 'Product_1.0.0_aarch64.dmg');
+  await writeFile(explicit, 'image');
+
+  await writeFile(configPath, JSON.stringify({ productName: 'Product' }));
+  await assert.rejects(resolveDmgPath({ configPath }), /Missing or unsupported version.*explicit DMG path/);
+  await writeFile(configPath, JSON.stringify({ productName: 'Product', version: '../VERSION' }));
+  await assert.rejects(resolveDmgPath({ configPath }), /Missing or unsupported version.*explicit DMG path/);
+  await writeFile(configPath, JSON.stringify({ productName: 'Product', version: 'latest' }));
+  await assert.rejects(resolveDmgPath({ configPath }), /Missing or unsupported version.*explicit DMG path/);
+  assert.equal(await resolveDmgPath({ argument: explicit, configPath }), explicit);
 });
 
 test('DMG finalization removes only the generated volume icon and atomically replaces a verified image', async (t) => {
@@ -116,4 +133,25 @@ test('DMG finalization retains and reports a temporary mount when forced detach 
   const retained = (await readdir(root)).filter((name) => name.startsWith('.finalize-dmg-'));
   assert.equal(retained.length, 1);
   assert.match(failure.message, new RegExp(retained[0]));
+});
+
+test('DMG finalization retains temporary files when attach fails with unknown mount state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-dmg-partial-attach-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const original = path.join(root, 'Product.dmg');
+  await writeFile(original, 'original image');
+  const runCommand = async (command, args) => {
+    if (command === 'hdiutil' && args[0] === 'convert') await copyFile(args[1], args.at(-1));
+    if (command === 'hdiutil' && args[0] === 'attach') {
+      await writeFile(path.join(args[args.indexOf('-mountpoint') + 1], 'partial'), 'possibly mounted');
+      throw new Error('attach returned nonzero');
+    }
+    return { stdout: '' };
+  };
+
+  await assert.rejects(finalizeDmg(original, { runCommand, platform: 'darwin' }),
+    /attach returned nonzero; attach did not complete; temporary files retained at .*mount state is unknown/);
+  const retained = (await readdir(root)).filter((name) => name.startsWith('.finalize-dmg-'));
+  assert.equal(retained.length, 1);
+  assert.equal(await readFile(path.join(root, retained[0], 'mount', 'partial'), 'utf8'), 'possibly mounted');
 });
