@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import type { RepositoryThreadSort } from './repository-preferences'
+import type { NativeSession } from './types'
 
 const actionClass = 'inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-[var(--color-muted)]! hover:bg-[var(--color-hover)]! hover:text-[var(--color-ink)]! [@media(pointer:coarse)]:size-11'
+
+export async function loadFreshExistingTerminal(sessionId: string, loadSessions: () => Promise<{ sessions: NativeSession[] }>) {
+  const snapshot = await loadSessions()
+  return {
+    sessions: snapshot.sessions,
+    existingTerminal: snapshot.sessions.find(item => item.sessionId === sessionId)?.existingTerminal,
+  }
+}
 
 export function RepositoryActions({ name, alias, favorite, threadSort, onFavorite, onRename, onThreadSort, onHide }: {
   name: string; alias?: string; favorite: boolean; threadSort: RepositoryThreadSort
@@ -42,14 +51,15 @@ export function RepositoryActions({ name, alias, favorite, threadSort, onFavorit
   </div>
 }
 
-export function SidebarThread({ title, selected, running, locked, nested, nativeId, onSelect, onRename, renameDisabled }: {
+export function SidebarThread({ title, selected, running, locked, nested, nativeId, existingTerminal, onSelect, onRename, onCopyExistingTerminal, renameDisabled }: {
   title: string; selected: boolean; running?: boolean; locked?: boolean; nested?: boolean; nativeId?: string
-  onSelect: () => void; onRename?: () => void; renameDisabled?: boolean
+  existingTerminal?: NativeSession['existingTerminal']; onSelect: () => void; onRename?: () => void; onCopyExistingTerminal?: () => void; renameDisabled?: boolean
 }) {
   return <div className={`group/thread flex min-w-0 items-center ${nested ? 'ml-[30px]' : ''}`}>
     <button type="button" data-native-thread={nativeId} className={`chat-row min-w-0 flex-1 ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={onSelect} title={title}>
       <Icon name="file" size={16} /><span className="truncate">{title}</span>{running && <span className="activity-dot" />}{locked && <Icon name="lock" size={12} />}
     </button>
     {onRename && <button type="button" className={`${actionClass} opacity-0 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 [@media(hover:none)]:opacity-100`} aria-label={`Rename ${title}`} title={renameDisabled ? 'Rename unavailable while another change is saving' : 'Rename display name'} disabled={renameDisabled} onClick={onRename}><Icon name="new" size={14} /></button>}
+    {existingTerminal && onCopyExistingTerminal && <button type="button" className={`${actionClass} existing-terminal-action opacity-0 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 [@media(hover:none)]:opacity-100`} aria-label={`Copy existing terminal for ${title}`} title={`Copy existing terminal · ${existingTerminal.target}`} onClick={onCopyExistingTerminal}><Icon name="terminal" size={14} /></button>}
   </div>
 }

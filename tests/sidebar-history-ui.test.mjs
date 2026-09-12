@@ -63,6 +63,61 @@ test('sidebar actions have explicit labels and rename does not activate the thre
   assert.match(locked, /title="Rename unavailable while another change is saving"/)
 })
 
+test('sidebar existing-terminal action copies only verified metadata without selecting the thread', async t => {
+  const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
+  t.after(() => server.close())
+  const { SidebarThread } = await server.ssrLoadModule('/src/SidebarActions.tsx')
+  const existingTerminal = {
+    sessionName: 'ampere-token',
+    target: 'ampere-token:arra-memory-one-click.0',
+    paneId: '%94',
+    attachCommand: "maw a 'ampere-token'",
+  }
+  let selected = 0, copied = 0
+  const row = SidebarThread({
+    title: 'Ampere agent',
+    selected: false,
+    existingTerminal,
+    onSelect() { selected++ },
+    onCopyExistingTerminal() { copied++ },
+  })
+  const markup = renderToStaticMarkup(row)
+  assert.match(markup, /aria-label="Copy existing terminal for Ampere agent"/)
+  assert.match(markup, /title="Copy existing terminal · ampere-token:arra-memory-one-click\.0"/)
+  assert.equal((markup.match(/<button/g) || []).length, 2)
+  row.props.children.find(child => child?.props?.className?.includes('existing-terminal-action')).props.onClick()
+  assert.deepEqual({ selected, copied }, { selected: 0, copied: 1 })
+
+  const unmatched = renderToStaticMarkup(createElement(SidebarThread, { title: 'Standalone WezTerm', selected: false, onSelect() {} }))
+  assert.doesNotMatch(unmatched, /Copy existing terminal/)
+  assert.equal((unmatched.match(/<button/g) || []).length, 1)
+})
+
+test('fresh existing-terminal lookup returns only exact current mappings and propagates refresh failures', async t => {
+  const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
+  t.after(() => server.close())
+  const { loadFreshExistingTerminal } = await server.ssrLoadModule('/src/SidebarActions.tsx')
+  const guardedAttach = "if tmux has-session -t '=ampere-token' 2>/dev/null; then maw a 'ampere-token'; else printf '%s\\n' 'Terminal closed.' >&2; false; fi"
+  const active = { sessionId: 'active-id', existingTerminal: { sessionName: 'ampere-token', target: 'ampere-token:0.1', paneId: '%94', attachCommand: guardedAttach } }
+  const saved = { sessionId: 'saved-id' }
+
+  const fresh = await loadFreshExistingTerminal('active-id', async () => ({ sessions: [active, saved] }))
+  assert.deepEqual(fresh.sessions, [active, saved])
+  assert.equal(fresh.existingTerminal.attachCommand, guardedAttach)
+
+  const exited = await loadFreshExistingTerminal('active-id', async () => ({ sessions: [saved] }))
+  assert.deepEqual(exited.sessions, [saved])
+  assert.equal(exited.existingTerminal, undefined)
+
+  let copied = false
+  await assert.rejects(
+    loadFreshExistingTerminal('active-id', async () => { throw new Error('refresh unavailable') })
+      .then(() => { copied = true }),
+    /refresh unavailable/,
+  )
+  assert.equal(copied, false)
+})
+
 test('App targets sidebar renames by identity and keeps display aliases out of project creation', async () => {
   const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
   assert.match(source, /openRename\(\{ kind: 'chat', id: item.id \}, item.title\)/)
@@ -80,4 +135,24 @@ test('App targets sidebar renames by identity and keeps display aliases out of p
   assert.match(source, /className="jump-to-bottom" onClick=\{jumpToBottom\}/)
   assert.match(source, />ARRA Claude Code<\/span>/)
   assert.match(source, /document\.title = `\$\{currentTitle\} — ARRA Claude Code`/)
+  assert.match(source, /existingTerminalFor\(thread\.item\.sessionId\)/)
+  assert.match(source, /existingTerminal=\{thread\.item\.existingTerminal\}/)
+  assert.match(source, /existingTerminalFor\(item\.sessionId\)/)
+  assert.match(source, /copy\(fresh\.existingTerminal\.attachCommand, `Existing terminal copied/)
+  assert.match(source, /currentExistingTerminal && currentSessionId \? <button[\s\S]*?Copy existing terminal/)
+  const selectedTerminal = source.slice(source.indexOf('const currentSessionId'), source.indexOf('const currentTitle'))
+  assert.match(selectedTerminal, /nativeSessions\.find\(item => item\.sessionId === currentSessionId\)\?\.existingTerminal/)
+  assert.doesNotMatch(selectedTerminal, /currentNativeSession\?\.existingTerminal|\?\? native/)
+  const refreshedCopy = source.slice(source.indexOf('async function copyExistingTerminal'), source.indexOf('function existingTerminalFor'))
+  assert.match(refreshedCopy, /loadFreshExistingTerminal\(sessionId, api\.nativeSessions\)/)
+  assert.ok(refreshedCopy.indexOf('requestId !== nativeListRequest.current') < refreshedCopy.indexOf('setNativeSessions(fresh.sessions)'))
+  assert.ok(refreshedCopy.indexOf('setNativeSessions(fresh.sessions)') < refreshedCopy.indexOf('copy(fresh.existingTerminal.attachCommand'))
+  assert.match(refreshedCopy, /No existing maw terminal is available/)
+  assert.doesNotMatch(refreshedCopy, /terminalCommand|resumeCommand|tmuxResumeCommand/)
+  const quietRefresh = source.slice(source.indexOf('async function refreshNativeQuiet'), source.indexOf('async function ensureProject'))
+  assert.match(source, /startNativeSessionRefresh\(\{ refresh: refreshNativeQuiet \}\)/)
+  assert.match(quietRefresh, /if \(preview \|\| nativeForegroundRefreshes\.current\) return/)
+  assert.match(quietRefresh, /requestId === nativeListRequest\.current/)
+  assert.doesNotMatch(quietRefresh, /setNativeListLoading|setNativeError|navigate|setDraft|setNativeMessages/)
+  assert.match(source, /kind === 'attach' && currentSessionId \? void copyExistingTerminal\(currentSessionId\)/)
 })

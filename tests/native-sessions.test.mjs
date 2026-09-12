@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { NativeSessionService } from '../server/native-sessions.mjs';
 
-function serviceWith(value, error = null, sdkOverrides = {}) {
+function serviceWith(value, error = null, sdkOverrides = {}, terminalLocator = { locate: async () => new Map() }) {
   let invocation;
   const sdk = {
     listSessions: async () => [],
@@ -17,7 +17,7 @@ function serviceWith(value, error = null, sdkOverrides = {}) {
   const service = new NativeSessionService({ execFileFn(command, args, options, callback) {
     invocation = { command, args, options };
     callback(error, typeof value === 'string' ? value : JSON.stringify(value));
-  }, sdk });
+  }, sdk, terminalLocator });
   return { service, invocation: () => invocation, sdk };
 }
 
@@ -311,4 +311,54 @@ test('idle interactive ownership explains the still-open terminal and PID', asyn
     assert.match(error.message, /exit/i);
     return true;
   });
+});
+
+test('matched maw terminal enriches active ownership without authorizing a second writer', async () => {
+  const terminal = { sessionName: 'neo-oracle-ampere-token', target: 'neo-oracle-ampere-token:claude.0', paneId: '%94', attachCommand: "maw a 'neo-oracle-ampere-token'" };
+  const queried = [];
+  const fixture = serviceWith([
+    { kind: 'interactive', cwd: process.cwd(), sessionId: 'live', pid: 8909, status: 'idle' },
+    { kind: 'interactive', cwd: process.cwd(), sessionId: 'outside', pid: 8910, status: 'idle' },
+  ], null, {}, { locate: async pids => { queried.push(pids); return new Map([[8909, terminal]]); } });
+  const sessions = await fixture.service.list();
+  assert.deepEqual(queried[0].sort(), [8909, 8910]);
+  assert.deepEqual(sessions.find(s => s.sessionId === 'live').existingTerminal, terminal);
+  assert.equal(sessions.find(s => s.sessionId === 'outside').existingTerminal, undefined);
+  await assert.rejects(fixture.service.resumable('live'), error => {
+    assert.equal(error.statusCode, 409);
+    assert.match(error.message, /maw a 'neo-oracle-ampere-token'/);
+    assert.match(error.message, /History sync remains available/);
+    return true;
+  });
+});
+
+test('maw lookup failure leaves active ownership blocked and normal discovery usable', async () => {
+  const { service } = serviceWith([{ kind: 'interactive', cwd: process.cwd(), sessionId: 'live', pid: 8909, status: 'idle' }], null, {}, {
+    locate: async () => { throw new Error('maw unavailable'); },
+  });
+  assert.equal((await service.list())[0].existingTerminal, undefined);
+  await assert.rejects(service.resumable('live'), error => error.statusCode === 409 && /8909/.test(error.message));
+});
+
+test('saved sessions without an owner skip maw lookup', async () => {
+  let lookups = 0;
+  const { service } = serviceWith([], null, { listSessions: async () => [{ sessionId: 'saved', cwd: process.cwd(), summary: 'Saved', lastModified: 1 }] }, {
+    locate: async () => { lookups += 1; return new Map(); },
+  });
+  assert.equal((await service.resumable('saved')).action, 'resume');
+  assert.equal(lookups, 0);
+});
+
+test('a PID shared by different sessions is ambiguous and gets no terminal shortcut', async () => {
+  const terminal = { sessionName: 'existing', target: 'existing:claude.0', paneId: '%1', attachCommand: "maw a 'existing'" };
+  const { service } = serviceWith([
+    { kind: 'interactive', cwd: process.cwd(), sessionId: 'first', pid: 42, status: 'idle' },
+    { kind: 'interactive', cwd: process.cwd(), sessionId: 'second', pid: 42, status: 'idle' },
+    { kind: 'interactive', cwd: process.cwd(), sessionId: 'unique', pid: 43, status: 'idle' },
+  ], null, {}, { locate: async () => new Map([[42, terminal], [43, terminal]]) });
+  const sessions = await service.list();
+  assert.equal(sessions.find(s => s.sessionId === 'first').existingTerminal, undefined);
+  assert.equal(sessions.find(s => s.sessionId === 'second').existingTerminal, undefined);
+  assert.deepEqual(sessions.find(s => s.sessionId === 'unique').existingTerminal, terminal);
+  await assert.rejects(service.resumable('first'), error => error.statusCode === 409 && !error.message.includes('maw a'));
 });

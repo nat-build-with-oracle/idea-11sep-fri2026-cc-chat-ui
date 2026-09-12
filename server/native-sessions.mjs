@@ -3,6 +3,7 @@ import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import * as claudeSdk from '@anthropic-ai/claude-agent-sdk';
 import { normalizeUsage } from './claude-runner.mjs';
+import { MawTerminalService } from './maw-terminals.mjs';
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 const ACTIVE_BACKGROUND_STATES = new Set(['working', 'blocked']);
@@ -155,11 +156,12 @@ function normalizeHistoryMessage(record, fallbackTime) {
 }
 
 export class NativeSessionService {
-  constructor({ execFileFn = execFile, sdk = claudeSdk, command = process.env.CLAUDE_BIN || 'claude', timeout = 5000 } = {}) {
+  constructor({ execFileFn = execFile, sdk = claudeSdk, command = process.env.CLAUDE_BIN || 'claude', timeout = 5000, terminalLocator } = {}) {
     this.execFileFn = execFileFn;
     this.command = command;
     this.timeout = timeout;
     this.sdk = sdk;
+    this.terminalLocator = terminalLocator || new MawTerminalService({ execFileFn });
     this.mutationQueue = Promise.resolve();
   }
 
@@ -198,6 +200,20 @@ export class NativeSessionService {
     for (const session of result) {
       if (paths.has(session.cwd)) session.canonicalPath = paths.get(session.cwd);
     }
+    const ownerCounts = new Map();
+    for (const session of result) {
+      if (session.pid) ownerCounts.set(session.pid, (ownerCounts.get(session.pid) || 0) + 1);
+    }
+    const ownerPids = [...ownerCounts.keys()].filter(pid => ownerCounts.get(pid) === 1);
+    if (ownerPids.length) {
+      try {
+        const terminals = await this.terminalLocator.locate(ownerPids);
+        for (const session of result) {
+          const terminal = ownerCounts.get(session.pid) === 1 ? terminals.get(session.pid) : undefined;
+          if (terminal) session.existingTerminal = terminal;
+        }
+      } catch { /* Optional terminal discovery must not affect the ownership guard. */ }
+    }
     return result;
   }
 
@@ -235,7 +251,9 @@ export class NativeSessionService {
     if (session.action === 'openTerminal' || session.action === 'resumeAfterExit') {
       const owner = session.status === 'idle' ? 'An idle Claude terminal still holds this session' : 'Another Claude process still holds this session';
       const pid = session.pid ? ` (PID ${session.pid})` : '';
-      throw Object.assign(new Error(`${owner}${pid}. Its last turn may be done, but the process has not exited. Use that terminal, or exit it before sending here. History sync remains available.`), { statusCode: 409 });
+      const terminal = session.existingTerminal;
+      const attach = terminal ? ` Existing maw terminal: ${terminal.target}. Attach with: ${terminal.attachCommand}.` : '';
+      throw Object.assign(new Error(`${owner}${pid}. Its last turn may be done, but the process has not exited. Use that terminal, or exit it before sending here. History sync remains available.${attach}`), { statusCode: 409 });
     }
     if (session.action !== 'resume') throw Object.assign(new Error('Native Claude session cannot be resumed'), { statusCode: 409 });
     return session;

@@ -58,6 +58,8 @@ Select **Your chats**, then choose a source:
 
 Search filters names, repositories, and session identifiers. The selected source and search are encoded in the URL, so Back, Forward, refresh, and copied links restore the same view.
 
+New CLI sessions appear automatically: the inventory refreshes every five seconds while the connected page is visible, and when you return to it. Hidden tabs pause; failures back off. Only the session list changes—your selected conversation, draft, and loaded history stay in place.
+
 ## 5. Open or resume a saved session
 
 Select a saved session to read it at `#/sessions/<session-id>?tab=saved`.
@@ -65,6 +67,7 @@ Select a saved session to read it at `#/sessions/<session-id>?tab=saved`.
 - **Resume here** imports the same native session into the app; it does not create a replacement identity.
 - If Claude still owns the session in a terminal, continue there or exit that Claude process first. History remains readable and syncable while sending stays protected by the one-writer guard.
 - **Copy terminal command** gives the exact `claude --resume <session-id>` command for the session’s original repository.
+- Hover or focus a sidebar thread and click the terminal icon beside its pencil to **Copy existing terminal**. ARRA rechecks the owning PID against maw/tmux and copies a guarded `maw a` script. It checks the exact tmux session again when run. A closed terminal is not recreated; no match means no copy. The same action appears in the header and native-session footer when available.
 
 ## 6. Load long conversation history
 
@@ -103,7 +106,7 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 2. Press **Enter** to select the reference, then send your message. The cursor returns to the composer. Only the selected name, path, and session ID metadata are shared—not the referenced conversation's history.
 3. Open a native session → **Session details** → **Set display alias** → **Save name**. Refresh: the alias remains, while the native name, ID, and history stay unchanged. This works even with its terminal open.
 4. Click the **Session** ID or the CLI command underneath to copy it. The command includes the known project folder. Copying does not run it; finish any existing native writer before resuming that session.
-5. Click **Show all commands** to expand every full command and its Copy button. Use **Copy tmux** for a named terminal, or **Copy -p test** for a one-shot sync check. Running the test adds a turn and uses Claude quota; the buttons themselves run nothing.
+5. Click **Show all commands** to expand every full command and its Copy button. Use **Copy new tmux** for a new named terminal, **Copy existing terminal** to attach to an already-running one, or **Copy -p test** for a one-shot sync check. Running the test adds a turn and uses Claude quota; the buttons themselves run nothing.
    For permission bypass, scroll to the amber **Full access** command cards. They skip permission checks; standard copies remain unchanged. The one-shot test still keeps tools off.
 6. Type **/** for `/rename` and `/list-agents` suggestions. **Enter/Tab** inserts a selection without sending; add arguments and send when ready.
 
@@ -129,6 +132,7 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 - **Hosted UI cannot reach `127.0.0.1:4318`** — keep the backend running, allow the site’s local-network prompt, and verify the `?host=http://127.0.0.1:4318` URL. See [Cloudflare setup and security](../cloudflare.md).
 - **Claude Code was not found** — confirm `claude --version` and `claude auth login`, then restart the app.
 - **Native session is still open** — use its terminal or exit that process before sending from ARRA. Do not run two writers against one Claude session.
+- **`maw a` says not found** — refresh the session list. The tmux terminal may have closed since copying; the saved Claude conversation can still be resumed explicitly. ARRA does not guess a different terminal from a similar name.
 - **Sync needs attention** — wait for an active CLI write to finish, select **Sync now**, and read the visible result. ARRA never deletes saved messages during a failed reconciliation.
 
 ## Notes

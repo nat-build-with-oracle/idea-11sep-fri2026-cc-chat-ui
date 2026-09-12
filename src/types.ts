@@ -35,5 +35,6 @@ export interface NativeSession {
   id: string | null; sessionId: string | null; cwd: string; canonicalPath?: string; kind: 'saved' | 'interactive' | 'background';
   name: string | null; pid: number | null; startedAt: number | null; updatedAt?: number | null; state: string | null; status: string | null;
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
+  existingTerminal?: { sessionName: string; target: string; paneId: string; attachCommand: string };
 }
 export interface HistoryPage { messages: Message[]; nextOffset: number | null }

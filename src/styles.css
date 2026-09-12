@@ -340,6 +340,13 @@ body { font-size: var(--ui-size); }
 .native-group h3 { font-size: 13px; font-weight: 650; padding: 0 5px; margin-bottom: 10px; }
 .native-row { border-bottom: 0; border-radius: 16px; padding: 13px 15px; margin-bottom: 5px; min-height: 84px; gap: 15px; background: var(--color-panel); }
 .native-row:hover { background: var(--color-raised); }
+.native-row-wrap { position: relative; display: flex; align-items: center; }
+.native-row-wrap .native-row { flex: 1; min-width: 0; }
+.native-existing-terminal { display: inline-flex; width: 34px; height: 34px; flex: 0 0 34px; align-items: center; justify-content: center; margin-left: 5px; border-radius: 9px; color: var(--color-muted); opacity: 0; }
+.native-existing-terminal:hover { color: var(--color-accent); background: var(--color-hover); }
+.native-row-wrap:hover .native-existing-terminal, .native-row-wrap:focus-within .native-existing-terminal { opacity: 1; }
+.existing-terminal-action, .existing-terminal-command { color: var(--color-accent)!important; }
+@media (hover: none), (pointer: coarse) { .native-existing-terminal { width: 44px; height: 44px; flex-basis: 44px; opacity: 1; } }
 .native-row-content strong { font-size: 17px; font-weight: 650; letter-spacing: -.015em; }
 .native-row-content > span { font-size: 13px; color: var(--color-muted); margin-top: 4px; }
 .project-avatar { display: flex; width: 48px; height: 48px; flex: 0 0 48px; align-items: center; justify-content: center; border-radius: 17px; font-size: 16px; font-weight: 750; letter-spacing: -.03em; }

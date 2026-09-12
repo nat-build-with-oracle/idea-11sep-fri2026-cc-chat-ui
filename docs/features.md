@@ -22,6 +22,8 @@
 
 The SDK supplies saved session listing, history, and rename. The installed CLI supplies execution and live-agent inventory. Their supported behavior can vary with installed versions.
 
+The connected page refreshes native session inventory every five seconds while visible, and on focus or return from a hidden tab. This discovers newly started CLI sessions without resetting your selected chat, draft, or loaded history. Hidden pages pause; failed reads back off up to 30 seconds. These inventory updates are separate from conversation-history sync.
+
 Within each source, the app sorts by newest reported `startedAt`. Background jobs are grouped as Needs input, Working, Completed, or Unknown state; failed and stopped jobs remain under Completed while retaining their exact status label. This is an explicit approximation of Claude Code's native Agents view because its internal tie-break and ordering key are not exposed.
 
 ### Full access
@@ -51,6 +53,12 @@ Chats linked to a Claude session now catch up automatically through the local ba
 The sync reader never writes Claude transcripts or sends a model prompt. It does not overwrite a running web response. Failed attempts that never reached Claude remain visibly labeled as local-only and do not block subsequent sync. Missing/unmatched history is retained locally with **Sync needs attention**, rather than silently deleting messages. Snapshots are capped at 10,000 returned native records (the SDK may parse more transcript data internally); larger sessions retain their cache and show an error. Startup and reconnect trigger catch-up without requiring a new message.
 
 **One writer at a time:** viewing/syncing a session while a CLI terminal is open is supported. Sending from the web is blocked while another Claude process holds the session, even if its last turn is finished and the terminal is idle. The error identifies the PID when available; exit that interactive session before resuming here. A completed `claude -p` process is not itself an active writer, but another open terminal may still hold the same session. External ownership checks cannot prevent a separate terminal from starting immediately after a check.
+
+**Find the existing terminal:** ARRA checks `maw ls --verbose --json`, tmux pane IDs, and the owning Claude PID's process ancestry. A verified match adds **Copy existing terminal** beside a sidebar thread's rename pencil (hover/focus, or always on touch), in the header commands, and in the native-session footer. Clicking rechecks the session list before copying a guarded `maw a '<existing session name>'` script—never starts a second Claude session or injects a message. If the terminal has closed, the shortcut disappears and nothing is copied. The script also checks the exact tmux session when you run it; a missing terminal prints a useful message instead of creating a replacement. The tooltip shows the matching pane; after attaching, select that window if another is active. Refresh the session list after opening new terminals.
+
+If `maw a` reports **not found**, that tmux session may have closed after discovery or copying. The saved Claude conversation is separate: resume it explicitly in a new terminal or in ARRA once no other process owns it. An attach command does not recreate a closed tmux session.
+
+Maw is optional. Unavailable tools, ambiguous matches, and standalone terminals outside tmux produce no attach shortcut; names and repository paths are never used to guess. Maw's activity labels do not grant permission to send: an idle or stale label does not release a still-running Claude owner. All discovery commands are bounded, read-only, and briefly cached; history sync is unchanged.
 
 ## Local data and boundaries
 

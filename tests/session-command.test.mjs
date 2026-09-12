@@ -93,6 +93,43 @@ test('collapsed disclosure contains complete selectable commands and each copy m
   assert.equal((html.match(/<pre><code>/g) || []).length, 6)
 })
 
+test('verified existing terminal copies the backend attach command exactly without changing launch commands', async t => {
+  const { default: SessionCommand, resumeCommand } = await loadCommand(t)
+  const guardedAttach = "if tmux has-session -t '=ampere-token' 2>/dev/null; then maw a 'ampere-token'; else printf '%s\\n' 'Terminal closed.' >&2; false; fi"
+  const existingTerminal = {
+    sessionName: 'ampere-token',
+    target: 'ampere-token:arra-memory-one-click.0',
+    paneId: '%94',
+    attachCommand: guardedAttach,
+  }
+  const copied = []
+  const tree = SessionCommand({
+    sessionId: 'native-id',
+    cwd: '/repos/neo-oracle',
+    title: 'arra memory one click',
+    existingTerminal,
+    onCopy: (...args) => copied.push(args),
+  })
+  const attachButton = tree.props.children.find(child => child?.props?.className?.includes('existing-terminal-command'))
+  attachButton.props.onClick()
+  assert.deepEqual(copied.at(-1), [guardedAttach, 'attach'])
+
+  const cards = tree.props.children.find(child => child?.type === 'details').props.children[1].props.children[1]
+  assert.equal(cards.length, 7)
+  assert.equal(cards[0].props.children[1].props.children.props.children, guardedAttach)
+  cards[0].props.children[0].props.children[1].props.onClick()
+  assert.deepEqual(copied.at(-1), [guardedAttach, 'attach'])
+  assert.equal(cards[1].props.children[1].props.children.props.children, resumeCommand('native-id', '/repos/neo-oracle'))
+
+  const html = renderToStaticMarkup(tree)
+  assert.match(html, /Copy existing terminal/)
+  assert.match(html, /Existing terminal · ampere-token · ampere-token:arra-memory-one-click\.0/)
+  assert.match(html, /New tmux · neo-oracle-arra-memory-one-click/)
+  assert.match(html, /Existing terminal attach is safe while its owner is open/)
+  assert.match(html, /Before running resume, new tmux, or one-shot commands, finish any existing Claude writer/)
+  assert.doesNotMatch(existingTerminal.attachCommand, /arra-memory-one-click|%94/)
+})
+
 test('full-access variants opt in to permission bypass without changing standard commands', async t => {
   const { default: SessionCommand, resumeCommand, oneShotCommand } = await loadCommand(t)
   const id = "session'quoted"

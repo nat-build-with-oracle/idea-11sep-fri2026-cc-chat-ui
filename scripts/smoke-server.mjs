@@ -93,6 +93,7 @@ class SmokeNativeSessions {
         id: 'fixture-active-agent', sessionId: 'fixture-active-session', cwd, kind: 'background',
         name: 'Maw peek digger', pid: 4242, startedAt: Date.UTC(2026, 8, 11, 11), state: 'working', status: null,
         waitingFor: 'Inspecting the Oracle family registry', action: 'openTerminal', terminalCommand: "claude attach 'fixture-active-agent'",
+        existingTerminal: { sessionName: 'fixture-maw-terminal', target: 'fixture-maw-terminal:claude.0', paneId: '%999', attachCommand: "if tmux has-session -t '=fixture-maw-terminal' 2>/dev/null; then maw a 'fixture-maw-terminal'; else printf '%s\\n' 'Terminal closed or unavailable. Refresh ARRA or explicitly resume the saved session.'; false; fi" },
       },
       {
         id: 'fixture-stopped-session', sessionId: 'fixture-stopped-session', cwd, kind: 'saved',

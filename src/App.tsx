@@ -16,7 +16,7 @@ import UsageInfo from './UsageInfo'
 import TranscriptSyncStatus from './TranscriptSyncStatus'
 import HistoryLoadControls from './HistoryLoadControls'
 import { loadRemainingHistory, mergeHistoryMessages } from './history-loading'
-import { RepositoryActions, SidebarThread } from './SidebarActions'
+import { loadFreshExistingTerminal, RepositoryActions, SidebarThread } from './SidebarActions'
 import { parseRepositoryPreferences, serializeRepositoryPreferences, setRepositoryFavorite, setRepositoryName, setRepositoryThreadSort, applyRepositoryPreferences, type RepositoryPreferences } from './repository-preferences'
 import { sortRepositoryThreads } from './repository-threads'
 import { parseHiddenRepositories, changeRepositoryVisibility } from './repository-visibility'
@@ -30,6 +30,7 @@ import SessionCommand from './SessionCommand'
 import { buildMentionCandidates, expandMentionContext, type MentionCandidate } from './mentions'
 import { mentionBindings, parseMentionBindings, resolveMentionBindings } from './mention-draft'
 import { followConversationBottom } from './follow-latest'
+import { startNativeSessionRefresh } from './native-session-refresh'
 
 const preview = new URLSearchParams(window.location.search).get('preview') === 'oracle'
 const modelNames: Record<Model, string> = { sonnet: 'Claude Sonnet', opus: 'Claude Opus', haiku: 'Claude Haiku' }
@@ -82,6 +83,7 @@ export default function App() {
   const [nativeLoading, setNativeLoading] = useState(false)
   const [nativeListLoading, setNativeListLoading] = useState(false)
   const nativeListRequest = useRef(0)
+  const nativeForegroundRefreshes = useRef(0)
   const [nativeError, setNativeError] = useState('')
   const [draft, setDraft] = useState(() => preview ? '' : stored(`draft:${selectedId || `new:${projectId}`}`))
   const [draftMentions, setDraftMentions] = useState(() => preview ? [] : storedMentionBindings(selectedId || `new:${projectId}`))
@@ -125,6 +127,13 @@ export default function App() {
   const currentModel = chat?.model ?? model
   const currentPermission = chat?.permissionMode ?? permission
   const running = chat?.status === 'running'
+  const currentNativeSession = view === 'native'
+    ? nativeSessions.find(item => item.sessionId === native?.sessionId) ?? native
+    : nativeSessions.find(item => item.sessionId === chat?.sessionId)
+  const currentSessionId = view === 'native' ? native?.sessionId : chat?.sessionId
+  const currentExistingTerminal = currentSessionId
+    ? nativeSessions.find(item => item.sessionId === currentSessionId)?.existingTerminal
+    : undefined
   const currentTitle = view === 'agents' ? 'Your corner' : view === 'native' ? native?.name || 'Claude session' : selectedId && !chat ? loaded ? 'Conversation not found' : 'Loading conversation…' : chat?.title || newTitle || 'New conversation'
   const messages = view === 'native' ? nativeMessages : chat?.messages ?? []
   const conversationItems = buildConversationItems(messages)
@@ -166,6 +175,10 @@ export default function App() {
   useEffect(() => () => { historyRequest.current?.abort() }, [])
   useEffect(() => { void refreshRepositories() }, [])
   useEffect(() => { void refreshNative() }, [view === 'agents'])
+  useEffect(() => {
+    if (preview || !connected) return
+    return startNativeSessionRefresh({ refresh: refreshNativeQuiet })
+  }, [connected])
   useEffect(() => {
     if (preview || !loaded || chat) return
     const fallback = recoverChatRoute(route, state.chats, nativeSessions, nativeListLoaded && fromRememberedSelection.current && navigation.current === 0)
@@ -275,10 +288,22 @@ export default function App() {
   async function refreshNative() {
     if (preview) return
     const requestId = ++nativeListRequest.current
+    nativeForegroundRefreshes.current += 1
     setNativeListLoading(true); setNativeError('')
     try { const data = await api.nativeSessions(); if (requestId === nativeListRequest.current) { setNativeSessions(data.sessions); setNativeListLoaded(true) } }
     catch (reason) { if (requestId === nativeListRequest.current) setNativeError(errorMessage(reason)) }
-    finally { if (requestId === nativeListRequest.current) setNativeListLoading(false) }
+    finally {
+      nativeForegroundRefreshes.current -= 1
+      if (requestId === nativeListRequest.current) setNativeListLoading(false)
+    }
+  }
+  async function refreshNativeQuiet() {
+    if (preview || nativeForegroundRefreshes.current) return
+    const requestId = ++nativeListRequest.current
+    const data = await api.nativeSessions()
+    if (requestId === nativeListRequest.current) {
+      setNativeSessions(data.sessions); setNativeListLoaded(true)
+    }
   }
   async function ensureProject(id: string) {
     if (!id || state.projects.some(project => project.id === id)) return id
@@ -404,6 +429,32 @@ export default function App() {
     else setPermission(value as PermissionMode)
   }
   async function copy(text: string, label = 'Copied') { try { await navigator.clipboard.writeText(text); setToast(label) } catch { setError('Clipboard access failed. Select and copy the text manually.') } }
+  async function copyExistingTerminal(sessionId: string) {
+    const requestId = ++nativeListRequest.current
+    nativeForegroundRefreshes.current += 1
+    setNativeListLoading(true); setNativeError(''); setError(''); setToast('')
+    try {
+      const fresh = await loadFreshExistingTerminal(sessionId, api.nativeSessions)
+      if (requestId !== nativeListRequest.current) return
+      setNativeSessions(fresh.sessions); setNativeListLoaded(true)
+      if (!fresh.existingTerminal) {
+        setToast('No existing maw terminal is available for this session.')
+        return
+      }
+      await copy(fresh.existingTerminal.attachCommand, `Existing terminal copied · ${fresh.existingTerminal.target}`)
+    } catch (reason) {
+      if (requestId === nativeListRequest.current) {
+        const message = `Could not verify the existing maw terminal. ${errorMessage(reason)}`
+        setNativeError(message); setError(message)
+      }
+    } finally {
+      nativeForegroundRefreshes.current -= 1
+      if (requestId === nativeListRequest.current) setNativeListLoading(false)
+    }
+  }
+  function existingTerminalFor(sessionId: string | null | undefined) {
+    return sessionId ? nativeSessions.find(item => item.sessionId === sessionId)?.existingTerminal : undefined
+  }
   function openRename(target?: RenameTarget, title = currentTitle) {
     setRenameTarget(target ?? (view === 'native' && native?.sessionId ? { kind: 'native', id: native.sessionId } : chat ? { kind: 'chat', id: chat.id } : { kind: 'draft' }))
     setTitleInput(title === 'New conversation' ? '' : title); setError(''); setModal('rename')
@@ -500,7 +551,7 @@ export default function App() {
           onHide={() => changeVisibility(repo.path, true)} />}
       </div>
       {!isCollapsed && <>
-        {threads.map(thread => thread.kind === 'chat' ? <SidebarThread key={`chat:${thread.item.id}`} title={thread.item.title} selected={chat?.id === thread.item.id} nested running={thread.item.status === 'running'} onSelect={() => selectChat(thread.item)} onRename={preview ? undefined : () => openRename({ kind: 'chat', id: thread.item.id }, thread.item.title)} renameDisabled={busy || thread.item.status === 'running'} /> : <SidebarThread key={`native:${thread.item.sessionId || thread.item.id}`} nativeId={thread.item.sessionId || undefined} title={thread.item.name || 'Untitled thread'} selected={nativeRouteId === thread.item.sessionId} nested locked={thread.item.action !== 'resume'} onSelect={() => selectNative(thread.item)} onRename={preview || !thread.item.sessionId ? undefined : () => openRename({ kind: 'native', id: thread.item.sessionId! }, thread.item.name || '')} renameDisabled={busy} />)}
+        {threads.map(thread => thread.kind === 'chat' ? <SidebarThread key={`chat:${thread.item.id}`} title={thread.item.title} selected={chat?.id === thread.item.id} nested running={thread.item.status === 'running'} existingTerminal={existingTerminalFor(thread.item.sessionId)} onCopyExistingTerminal={thread.item.sessionId ? () => void copyExistingTerminal(thread.item.sessionId!) : undefined} onSelect={() => selectChat(thread.item)} onRename={preview ? undefined : () => openRename({ kind: 'chat', id: thread.item.id }, thread.item.title)} renameDisabled={busy || thread.item.status === 'running'} /> : <SidebarThread key={`native:${thread.item.sessionId || thread.item.id}`} nativeId={thread.item.sessionId || undefined} title={thread.item.name || 'Untitled thread'} selected={nativeRouteId === thread.item.sessionId} nested locked={thread.item.action !== 'resume'} existingTerminal={thread.item.existingTerminal} onCopyExistingTerminal={thread.item.sessionId ? () => void copyExistingTerminal(thread.item.sessionId!) : undefined} onSelect={() => selectNative(thread.item)} onRename={preview || !thread.item.sessionId ? undefined : () => openRename({ kind: 'native', id: thread.item.sessionId! }, thread.item.name || '')} renameDisabled={busy} />)}
         {allThreads.length > threads.length && <button className="project-empty" onClick={() => setExpandedThreads(previous => new Set(previous).add(repo.id))}>Show {allThreads.length - threads.length} more threads</button>}
         <button className="project-empty" onClick={() => newChat(repo.id)}>{repo.chats.length || repo.sessions.length ? '+ New thread' : 'Start a conversation'}</button>
       </>}
@@ -519,12 +570,12 @@ export default function App() {
           {repositorySearch && !matchingRepositories.length && <p className="sidebar-empty">No visible repositories match.</p>}
           {!preview && hiddenRepositories.size > 0 && <details className="hidden-repositories"><summary>Hidden repositories ({hiddenRepositories.size})</summary><p>Hidden here, not deleted. Files and threads are untouched.</p>{[...hiddenRepositories].map(path => <div className="hidden-repository-row" key={path}><span className="truncate" title={path}>{repositoryRows.find(repo => repo.path === path)?.name || path.split('/').pop() || path}</span><button className="subtle-button" aria-label={`Restore ${path.split('/').pop()} to sidebar`} onClick={() => changeVisibility(path, false)}>Restore</button></div>)}</details>}
         </section>
-        <section className="recents"><div className="section-label"><span>Picked up here</span></div>{state.chats.map(item => <SidebarThread key={item.id} title={item.title} selected={chat?.id === item.id && !preview} running={item.status === 'running'} onSelect={() => selectChat(item)} onRename={preview ? undefined : () => openRename({ kind: 'chat', id: item.id }, item.title)} renameDisabled={busy || item.status === 'running'} />)}{loaded && !state.chats.length && <p className="sidebar-empty">A fresh start. Your next chat goes here.<button onClick={showAgents}>Find your other chats <Icon name="chevron" size={12} /></button></p>}</section>
+        <section className="recents"><div className="section-label"><span>Picked up here</span></div>{state.chats.map(item => <SidebarThread key={item.id} title={item.title} selected={chat?.id === item.id && !preview} running={item.status === 'running'} existingTerminal={existingTerminalFor(item.sessionId)} onCopyExistingTerminal={item.sessionId ? () => void copyExistingTerminal(item.sessionId!) : undefined} onSelect={() => selectChat(item)} onRename={preview ? undefined : () => openRename({ kind: 'chat', id: item.id }, item.title)} renameDisabled={busy || item.status === 'running'} />)}{loaded && !state.chats.length && <p className="sidebar-empty">A fresh start. Your next chat goes here.<button onClick={showAgents}>Find your other chats <Icon name="chevron" size={12} /></button></p>}</section>
       </nav>
       <BackendConnectionInfo connected={connected} href={window.location.href} preview={preview} settings={<IconButton icon="settings" label="Workspace settings" onClick={() => { setError(''); setModal('settings') }} />} />
     </aside>
 
-    <main className="main-pane"><header className="topbar"><button className="icon-button sidebar-toggle" aria-label="Toggle sidebar" onClick={() => { if (window.innerWidth < 760) setSidebarOpen(!sidebarOpen); else setSidebarHidden(!sidebarHidden) }}><Icon name="panel" /></button>{view === 'native' ? <IconButton icon="back" label="Back to Claude agents" onClick={showAgents} /> : <Icon name={view === 'agents' ? 'agents' : 'folder'} size={22} />}<div className="topbar-heading"><h1 className="topbar-title">{currentTitle}</h1><SessionIdentity sessionId={view === 'native' ? native?.sessionId : chat?.sessionId} onCopy={id => void copy(id, 'Claude session ID copied')} /><SessionCommand sessionId={view === 'native' ? native?.sessionId : chat?.sessionId} cwd={view === 'native' ? native?.cwd : nativeSessions.find(item => item.sessionId === chat?.sessionId)?.cwd || selectedProject?.path} title={currentTitle} onCopy={(command, kind) => void copy(command, kind === 'tmux' ? 'Tmux command copied · paste in your terminal' : kind === 'oneshot' ? 'One-shot test copied · running it adds a turn and uses Claude quota' : 'Resume command copied')} /></div><div className="topbar-actions"><Appearance />{view !== 'agents' && <IconButton icon="info" label="Session details" onClick={() => setDetailsOpen(!detailsOpen)} active={detailsOpen} />}</div></header>
+    <main className="main-pane"><header className="topbar"><button className="icon-button sidebar-toggle" aria-label="Toggle sidebar" onClick={() => { if (window.innerWidth < 760) setSidebarOpen(!sidebarOpen); else setSidebarHidden(!sidebarHidden) }}><Icon name="panel" /></button>{view === 'native' ? <IconButton icon="back" label="Back to Claude agents" onClick={showAgents} /> : <Icon name={view === 'agents' ? 'agents' : 'folder'} size={22} />}<div className="topbar-heading"><h1 className="topbar-title">{currentTitle}</h1><SessionIdentity sessionId={view === 'native' ? native?.sessionId : chat?.sessionId} onCopy={id => void copy(id, 'Claude session ID copied')} /><SessionCommand sessionId={view === 'native' ? currentNativeSession?.sessionId : chat?.sessionId} cwd={currentNativeSession?.cwd || selectedProject?.path} title={currentTitle} existingTerminal={currentExistingTerminal} onCopy={(command, kind) => kind === 'attach' && currentSessionId ? void copyExistingTerminal(currentSessionId) : void copy(command, kind === 'tmux' ? 'New tmux command copied · paste in your terminal' : kind === 'oneshot' ? 'One-shot test copied · running it adds a turn and uses Claude quota' : 'Resume command copied')} /></div><div className="topbar-actions"><Appearance />{view !== 'agents' && <IconButton icon="info" label="Session details" onClick={() => setDetailsOpen(!detailsOpen)} active={detailsOpen} />}</div></header>
       {error && error !== connectionIssue && !modal && <div className="error-banner" role="alert"><span>{error}</span><IconButton icon="close" label="Dismiss error" onClick={() => setError('')} /></div>}
       {!preview && loaded && (!connected || connectionIssue) && <div className="warning-banner flex flex-wrap items-center justify-between gap-x-4 gap-y-2" role="status"><span>{connectionIssue ? 'This browser could not reach the backend.' : 'Live updates are disconnected.'}</span><button type="button" className="subtle-button shrink-0 text-[13px]" onClick={() => setConnectionHelpOpen(true)}>Connection help</button></div>}
       {!preview && health?.allowAnyOrigin && <div className="warning-banner" role="alert">Unsafe development mode: every website origin can access this backend, read conversations, and run Claude commands. Remove CC_CHAT_ALLOW_ANY_ORIGIN to secure it.</div>}
@@ -545,7 +596,7 @@ export default function App() {
                 const color = [...project].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 5
                 const status = item.state === 'failed' ? 'Failed' : item.state === 'stopped' ? 'Stopped' : group === 'Needs input' ? 'Needs you' : item.kind === 'saved' ? 'Saved' : group
                 const reference = (item.id || item.sessionId || '').slice(0, 8)
-                return <button className="native-row" data-session-id={item.sessionId || item.id || undefined} key={`${item.sessionId}-${item.id}-${index}`} onClick={() => void selectNative(item)} title={`${item.name || 'Untitled chat'} · ${item.cwd}`}><span className={`project-avatar avatar-${color}`} aria-hidden="true">{initials}</span><span className="native-row-content"><strong>{item.name || project}</strong><span>{project}{reference && <> · <code>{reference}</code></>}</span></span><span className={`native-row-status status-${group === 'Needs input' ? 'needs' : group === 'Working' ? 'working' : 'quiet'}`} title={item.waitingFor || item.status || item.state || status}>{status}</span><Icon name="chevron" size={15} /></button>
+                return <div className="native-row-wrap" key={`${item.sessionId}-${item.id}-${index}`}><button className="native-row" data-session-id={item.sessionId || item.id || undefined} onClick={() => void selectNative(item)} title={`${item.name || 'Untitled chat'} · ${item.cwd}`}><span className={`project-avatar avatar-${color}`} aria-hidden="true">{initials}</span><span className="native-row-content"><strong>{item.name || project}</strong><span>{project}{reference && <> · <code>{reference}</code></>}</span></span><span className={`native-row-status status-${group === 'Needs input' ? 'needs' : group === 'Working' ? 'working' : 'quiet'}`} title={item.waitingFor || item.status || item.state || status}>{status}</span><Icon name="chevron" size={15} /></button>{item.existingTerminal && item.sessionId && <button type="button" className="native-existing-terminal" aria-label={`Copy existing terminal for ${item.name || project}`} title={`Copy existing terminal · ${item.existingTerminal.target}`} onClick={() => void copyExistingTerminal(item.sessionId!)}><Icon name="terminal" size={15} /></button>}</div>
               })}</section> : null
             })}
             {!nativeListLoading && !nativeError && !visibleSessions.length && <div className="list-empty"><Icon name="search" size={26} /><h3>{filter ? 'Nothing here just yet' : 'Your next idea starts here'}</h3><p>{filter ? 'Try another filter or a different name.' : 'Start a new chat, or open Claude Code in a terminal.'}</p></div>}
@@ -565,7 +616,7 @@ export default function App() {
               <HistoryLoadControls hasMore={nextHistory !== null} loading={historyLoading} pages={historyPages} notice={historyNotice} disabled={busy || running || !connected || preview} onMore={() => void loadHistory()} onAll={() => void loadHistory(true)} onStop={() => historyRequest.current?.abort()} />
             </div></div>{showJumpToBottom && <button type="button" className="jump-to-bottom" onClick={jumpToBottom}><Icon name="arrow" size={15} className="rotate-180" />Jump to bottom</button>}</div>
             {messages.length > 0 && <div className="conversation-follow"><button type="button" aria-pressed={followLatest} onClick={() => changeFollowLatest(!followLatest)} title={followLatest ? 'Pause auto-scroll to read earlier messages' : 'Resume auto-scroll to the newest message'}><Icon name={followLatest ? 'check' : 'arrow'} size={13} />{followLatest ? 'Follow latest · On' : 'Follow latest · Paused'}</button></div>}
-            {selectedId && !chat ? null : view === 'native' ? <div className="native-session-footer"><div><Icon name={native?.action === 'resume' ? 'message' : 'lock'} /><span><strong>{!native ? nativeLoading ? 'Loading Claude session…' : 'Session unavailable' : native.action === 'resume' ? 'Continue this conversation' : native.action === 'unavailable' ? 'This session is read-only' : 'This session is open in Claude Code'}</strong><small>{!native ? 'Return to Your chats to select another session.' : native.action === 'resume' ? 'Resume the same session in its original project folder.' : 'History is read-only here. Keep working in its terminal, or exit it before resuming here.'}</small></span></div><div className="native-footer-actions">{native?.terminalCommand && <button className="subtle-button" onClick={() => void copy(native.terminalCommand!, 'Terminal command copied')}><Icon name="copy" size={15} />Copy terminal command</button>}{native?.action === 'resume' && <button className="primary-button" onClick={() => void importNative()} disabled={busy}>{busy ? 'Opening…' : 'Resume here'}<Icon name="arrow" size={16} /></button>}</div></div> : <div className="composer-area">
+            {selectedId && !chat ? null : view === 'native' ? <div className="native-session-footer"><div><Icon name={native?.action === 'resume' ? 'message' : 'lock'} /><span><strong>{!native ? nativeLoading ? 'Loading Claude session…' : 'Session unavailable' : native.action === 'resume' ? 'Continue this conversation' : native.action === 'unavailable' ? 'This session is read-only' : 'This session is open in Claude Code'}</strong><small>{!native ? 'Return to Your chats to select another session.' : native.action === 'resume' ? 'Resume the same session in its original project folder.' : 'History is read-only here. Keep working in its terminal, or exit it before resuming here.'}</small></span></div><div className="native-footer-actions">{currentExistingTerminal && currentSessionId ? <button className="subtle-button" title={`Existing terminal · ${currentExistingTerminal.target}`} onClick={() => void copyExistingTerminal(currentSessionId)}><Icon name="terminal" size={15} />Copy existing terminal</button> : native?.terminalCommand && <button className="subtle-button" onClick={() => void copy(native.terminalCommand!, 'Terminal command copied')}><Icon name="copy" size={15} />Copy terminal command</button>}{native?.action === 'resume' && <button className="primary-button" onClick={() => void importNative()} disabled={busy}>{busy ? 'Opening…' : 'Resume here'}<Icon name="arrow" size={16} /></button>}</div></div> : <div className="composer-area">
               {chat?.sessionId && <TranscriptSyncStatus chat={chat} syncing={syncingChatId === chat.id} connected={connected} busy={busy || Boolean(syncingChatId && syncingChatId !== chat.id)} onSync={() => void syncChat()} />}
               {missingNewProject && <p className="composer-explainer" role="status">This project is no longer in your workspace. Choose a project or Local workspace below.</p>}
               {!messages.length && <p className="composer-explainer"><Icon name="info" size={14} />New chat creates a new Claude session.</p>}
