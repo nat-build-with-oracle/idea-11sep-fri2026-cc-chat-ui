@@ -1,11 +1,19 @@
+import { backendApiUrl, backendTarget } from './backend-target'
 import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const target = backendTarget(window.location.href)
+  const options: RequestInit & { targetAddressSpace?: 'loopback' } = {
+    credentials: 'omit',
+    redirect: 'error',
+    ...(target.base ? { targetAddressSpace: 'loopback' as const } : {}),
     method,
     headers: method === 'GET' ? undefined : { 'Content-Type': 'application/json' },
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-  })
+  }
+  let response: Response
+  try { response = await fetch(backendApiUrl(window.location.href, path), options) }
+  catch { throw new Error(`Cannot reach the local backend at ${target.origin}. Keep it running, allow this site's local-network access, and check CC_CHAT_FRONTEND_ORIGIN.`) }
   const data = await response.json().catch(() => null)
   if (!response.ok) throw new Error(data?.error || `Request failed (${response.status}). Please try again.`)
   return data as T
@@ -29,7 +37,7 @@ export const api = {
 }
 
 export function subscribe(onState: (state: AppState) => void, onConnection: (connected: boolean) => void) {
-  const source = new EventSource('/api/events')
+  const source = new EventSource(backendApiUrl(window.location.href, '/events'))
   source.addEventListener('state', (event: MessageEvent<string>) => {
     try { onState(JSON.parse(event.data) as AppState); onConnection(true) }
     catch { onConnection(false) }

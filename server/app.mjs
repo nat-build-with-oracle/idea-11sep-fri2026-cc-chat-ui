@@ -32,15 +32,59 @@ function isLoopbackHostname(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
 }
 
-function validOrigin(request, devOrigin) {
-  if (!request.headers.origin) return true;
+function configuredFrontendOrigin(value) {
+  if (!value) return '';
+  if (typeof value !== 'string' || value !== value.trim()) throw new Error('CC_CHAT_FRONTEND_ORIGIN must be an exact HTTPS origin URL');
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || parsed.hostname.includes('*') || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.origin === 'null') {
+      throw new Error('invalid hosted origin');
+    }
+    return parsed.origin;
+  } catch {
+    throw new Error('CC_CHAT_FRONTEND_ORIGIN must be an exact HTTPS origin URL');
+  }
+}
+
+function approvedOrigin(request, devOrigin, frontendOrigin) {
+  if (!request.headers.origin) return { allowed: true, corsOrigin: '' };
   try {
     const origin = new URL(request.headers.origin);
-    const value = origin.origin.toLowerCase();
-    return (origin.protocol === 'http:' || origin.protocol === 'https:') && (origin.host.toLowerCase() === String(request.headers.host).toLowerCase() || value === devOrigin);
+    if ((origin.protocol !== 'http:' && origin.protocol !== 'https:') || origin.username || origin.password || request.headers.origin !== origin.origin) {
+      return { allowed: false, corsOrigin: '' };
+    }
+    const normalized = origin.origin.toLowerCase();
+    const sameOrigin = origin.host.toLowerCase() === String(request.headers.host).toLowerCase();
+    const allowed = sameOrigin || normalized === devOrigin || origin.origin === frontendOrigin;
+    return { allowed, corsOrigin: allowed ? origin.origin : '' };
   } catch {
-    return false;
+    return { allowed: false, corsOrigin: '' };
   }
+}
+
+function setCorsHeaders(response, origin) {
+  if (!origin) return;
+  response.setHeader('access-control-allow-origin', origin);
+  response.setHeader('vary', 'Origin');
+}
+
+function preflight(request, response) {
+  const method = String(request.headers['access-control-request-method'] || '').toUpperCase();
+  const allowedMethods = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
+  const requestedHeaders = String(request.headers['access-control-request-headers'] || '')
+    .split(',')
+    .map((header) => header.trim().toLowerCase())
+    .filter(Boolean);
+  if (!allowedMethods.has(method) || requestedHeaders.some((header) => header !== 'content-type')) {
+    return json(response, 403, { error: 'Forbidden preflight' });
+  }
+  response.setHeader('access-control-allow-methods', 'GET, POST, PATCH, DELETE');
+  response.setHeader('access-control-allow-headers', 'Content-Type');
+  if (String(request.headers['access-control-request-private-network'] || '').toLowerCase() === 'true') {
+    response.setHeader('access-control-allow-private-network', 'true');
+  }
+  response.writeHead(204);
+  response.end();
 }
 
 async function body(request) {
@@ -137,6 +181,7 @@ async function serveSpa(request, response, distDir) {
 }
 
 export async function createApp(options = {}) {
+  const frontendOrigin = configuredFrontendOrigin(options.frontendOrigin ?? process.env.CC_CHAT_FRONTEND_ORIGIN ?? '');
   const cwd = path.resolve(options.cwd || process.cwd());
   const store = options.store || await new JsonStore({ dataDir: options.dataDir, cwd }).init();
   const runner = options.runner || new ClaudeRunner(options.runnerOptions);
@@ -248,9 +293,16 @@ export async function createApp(options = {}) {
 
   const handler = async (request, response) => {
     try {
-      if (!validHost(request) || !validOrigin(request, devOrigin)) return json(response, 403, { error: 'Forbidden origin' });
+      if (!validHost(request)) return json(response, 403, { error: 'Forbidden origin' });
+      const origin = approvedOrigin(request, devOrigin, frontendOrigin);
+      if (!origin.allowed) return json(response, 403, { error: 'Forbidden origin' });
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (!url.pathname.startsWith('/api/')) return serveSpa(request, response, distDir);
+      setCorsHeaders(response, origin.corsOrigin);
+      if (request.method === 'OPTIONS') {
+        if (!origin.corsOrigin) return json(response, 403, { error: 'Forbidden preflight' });
+        return preflight(request, response);
+      }
       if (request.method === 'GET' && url.pathname === '/api/state') return json(response, 200, store.snapshot());
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();

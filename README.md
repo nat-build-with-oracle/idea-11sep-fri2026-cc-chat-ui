@@ -20,6 +20,16 @@ npm start
 
 Then open **http://127.0.0.1:4318**. Keep the terminal running. This is a local web app, not a packaged macOS application.
 
+## Hosted frontend + local backend
+
+Open **[the Cloudflare frontend](https://cc-chat-ui.laris.workers.dev/?host=http://127.0.0.1:4318)** on your Mac. The browser connects directly to your local API through `?host=`; Cloudflare serves only static UI assets. Start the backend with:
+
+```sh
+CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
+```
+
+Select **Connect to this Mac** and allow browser local-network access if prompted. Nothing exposes your backend publicly. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
+
 ## What works
 
 - **New chat:** the first message creates a distinct Claude session. Later messages use `claude -p --resume` with that session's UUID.
@@ -56,7 +66,7 @@ The current Chat stream is structured JSON, **not a TTY**. A real terminal tab i
 
 App metadata and conversation copies are stored in `.local/state.json` (gitignored, owner-only file permissions). Set `CC_CHAT_DATA_DIR` to choose another location. Native transcripts remain under Claude Code's own storage. Keep backups if you need durable archives.
 
-The server binds only to `127.0.0.1`, checks Host/Origin, and rejects cross-origin mutation requests. Do not expose it through a public tunnel, reverse proxy, or shared machine account: it has no multi-user authentication. Local storage does **not** mean offline model execution—Claude Code still communicates with Anthropic using your account.
+The server binds only to `127.0.0.1`, checks Host/Origin, and rejects untrusted cross-origin requests. A hosted frontend requires an explicit exact `CC_CHAT_FRONTEND_ORIGIN` opt-in. Do not expose it through a public tunnel, reverse proxy, or shared machine account: it has no multi-user authentication. Local storage does **not** mean offline model execution—Claude Code still communicates with Anthropic using your account.
 
 `/?preview=oracle` is an explicitly labeled, non-executable design preview with illustrative conversations. It does not populate live app data or overwrite your live selected conversation or drafts. Old preview conversation links recover to a new live chat. Oracle registry dates shown there are historical, not live presence.
 
