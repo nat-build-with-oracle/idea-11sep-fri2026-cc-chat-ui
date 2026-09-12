@@ -30,7 +30,11 @@ CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
 
 Select **Connect to backend** and allow browser local-network access if prompted. The default Mac backend stays loopback-only. For arbitrary website origins, an explicit unsafe development switch is documented—not enabled by default. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
 
-If a browser blocks the connection, **Connection help** explains the local-device permission, Comet’s per-site blocker settings, and a safe read-only Retry action. The popup and build footer use Tailwind utilities with the existing theme tokens.
+### Comet blocking the connection?
+
+![Comet shield menu: Block ads and trackers switched off for this site](docs/images/comet-site-adblock-off.png)
+
+**Shield → “Block ads and trackers” off for this site only → Reload.** [More help](docs/cloudflare.md#quick-per-site-fix-the-shield-menu)
 
 ## Build version
 
