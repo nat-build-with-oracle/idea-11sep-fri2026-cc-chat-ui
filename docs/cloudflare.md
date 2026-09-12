@@ -70,6 +70,18 @@ If Drizzle Studio works but this origin does not, its permissions are not automa
 
 Chromium defines this error as the client choosing to block the request, not a response from this API. It does **not** identify a particular extension or prove that Local Network Access permission was denied. [Chromium network errors](https://chromium.googlesource.com/chromium/src/+/main/net/base/net_error_list.h)
 
+### Quick per-site fix: the shield menu
+
+On the **Cloudflare app page**, click Comet’s shield icon beside the address bar and turn **Block ads and trackers** off **for this site only**, as shown below. Reload the hosted page and select **Retry connection** if needed. Keep blocking enabled for other sites.
+
+![Comet’s per-site shield menu with “Block ads and trackers” switched off](images/comet-site-adblock-off.png)
+
+*User-provided screenshot: the gray toggle is off. This is Comet’s content blocker, not the separate Local network permission.*
+
+If the hosted connection works after this change, that confirms this blocker was responsible. If it makes no difference, turn blocking back on and continue the checks below. Opening `127.0.0.1` directly is a different test: it does not exercise the hosted site’s cross-origin connection to your local backend.
+
+### Other checks
+
 For this site, try a narrow diagnostic change:
 
 1. In Comet, open **Settings → Privacy → Blocking** and add `https://cc-chat-ui.laris.workers.dev` to **Adblock exceptions**. Keep global blocking enabled. Reload and retry. Remove the exception if it makes no difference. [Comet Adblock](https://www.perplexity.ai/help-center/comet/en/articles/11734702-adblock)

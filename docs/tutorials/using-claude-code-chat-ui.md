@@ -41,6 +41,8 @@ Refresh the current page. The same route, project, conversation, or native sessi
 
 ## Troubleshooting
 
+- **Comet blocks the hosted app (`ERR_BLOCKED_BY_CLIENT`)** — See the [shield-menu screenshot and per-site blocker steps](../cloudflare.md#quick-per-site-fix-the-shield-menu). This is separate from Local network permission; do not disable blocking globally.
+
 - **Claude Code wasn’t found** — Run `claude auth login`, verify `claude` is on your PATH, then restart the app.
 - **A native session is active** — Continue it in its terminal; only stopped sessions can be resumed here.
 - **Token usage was not reported** — This is an honest unavailable state; the UI does not estimate it from context-window size.
