@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
-export type IconName = 'new' | 'search' | 'folder' | 'chevron' | 'plus' | 'arrow' | 'stop' | 'close' | 'panel' | 'info' | 'settings' | 'terminal' | 'message' | 'copy' | 'check' | 'shield' | 'lock' | 'more' | 'download' | 'trash' | 'refresh' | 'agents' | 'file' | 'back' | 'eyeOff'
+export type IconName = 'new' | 'search' | 'folder' | 'chevron' | 'plus' | 'arrow' | 'stop' | 'close' | 'panel' | 'info' | 'settings' | 'terminal' | 'message' | 'copy' | 'check' | 'shield' | 'lock' | 'more' | 'download' | 'trash' | 'refresh' | 'agents' | 'file' | 'back' | 'eyeOff' | 'star'
 const paths: Record<IconName, string[]> = {
+  star: ['m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z'],
   eyeOff: ['m3 3 18 18', 'M10.6 10.6a2 2 0 0 0 2.8 2.8', 'M9.9 5.2A11 11 0 0 1 12 5c6 0 10 7 10 7a19 19 0 0 1-3 3.6', 'M6.5 6.5A19 19 0 0 0 2 12s4 7 10 7a11 11 0 0 0 5.5-1.5'],
   new: ['M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7', 'm16 3 5 5-10 10-5 1 1-5Z', 'm14 5 5 5'],
   search: ['M21 21l-5-5', 'M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0'],

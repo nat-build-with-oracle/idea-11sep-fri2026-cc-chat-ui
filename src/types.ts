@@ -9,16 +9,22 @@ export interface Usage {
 }
 export interface Message {
   id: string; role: 'user' | 'assistant'; content: string; createdAt: string;
+  nativeSourceIds?: string[]; appOnly?: boolean;
   history?: { sourceUuid: string; parentToolUseId?: string | null; blocks: HistoryBlock[] };
   status?: 'streaming' | 'complete' | 'error' | 'interrupted'; tools?: Tool[]; error?: string;
   usage?: Usage;
 }
 export type Model = 'sonnet' | 'opus' | 'haiku'
 export type PermissionMode = 'bypassPermissions' | 'default'
+export interface ChatSync {
+  status: 'synced' | 'error'; checkedAt: string;
+  sourceHash?: string; messageCount?: number; error?: string;
+}
 export interface Chat {
   id: string; title: string; projectId: string | null; sessionId: string | null;
   model: Model; permissionMode: PermissionMode; createdAt: string; updatedAt: string;
   messages: Message[]; status: 'idle' | 'running';
+  sync?: ChatSync;
   nativeImported?: boolean; historyUnavailable?: boolean; historyTruncated?: boolean; historyNextOffset?: number | null;
 }
 export interface AppState { projects: Project[]; chats: Chat[] }
@@ -27,7 +33,7 @@ export interface Health { ok: boolean; allowAnyOrigin?: boolean; claudeAvailable
 export type HistoryBlock = { type: 'text'; text: string } | { type: 'tool'; id: string; name: string; input: unknown; status: 'running' | 'complete' } | { type: 'toolResult'; toolUseId: string; content: unknown; isError?: boolean }
 export interface NativeSession {
   id: string | null; sessionId: string | null; cwd: string; canonicalPath?: string; kind: 'saved' | 'interactive' | 'background';
-  name: string | null; pid: number | null; startedAt: number | null; state: string | null; status: string | null;
+  name: string | null; pid: number | null; startedAt: number | null; updatedAt?: number | null; state: string | null; status: string | null;
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
 }
 export interface HistoryPage { messages: Message[]; nextOffset: number | null }

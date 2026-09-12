@@ -53,6 +53,7 @@ function normalize(record) {
     pid,
     sessionId,
     startedAt: timestamp(record.startedAt),
+    updatedAt: timestamp(record.updatedAt) ?? timestamp(record.lastModified) ?? timestamp(record.startedAt),
     state,
     status,
     waitingFor: shortString(record.waitingFor, 500),
@@ -74,6 +75,7 @@ function normalizeSaved(record) {
     pid: null,
     sessionId,
     startedAt: timestamp(record.createdAt) ?? timestamp(record.lastModified),
+    updatedAt: timestamp(record.lastModified) ?? timestamp(record.createdAt),
     state: 'saved',
     status: null,
     waitingFor: null,
@@ -93,10 +95,22 @@ function blockText(content) {
   return content.map((block) => typeof block === 'string' ? block : block?.text || '').filter(Boolean).join('\n');
 }
 
-function messageTime(message, fallback) {
-  const candidate = message?.timestamp ?? fallback;
+function messageTime(record, fallback) {
+  const candidate = record?.timestamp ?? record?.message?.timestamp ?? fallback;
   const date = typeof candidate === 'string' || Number.isFinite(candidate) ? new Date(candidate) : new Date(0);
   return Number.isNaN(date.getTime()) ? new Date(0).toISOString() : date.toISOString();
+}
+
+function sessionChangeToken(info) {
+  return JSON.stringify([info.lastModified ?? null, info.fileSize ?? null, info.cwd ?? null]);
+}
+
+function visibleText(text) {
+  const command = text.match(/^\s*<command-name>(\/[\s\S]*?)<\/command-name>[\s\S]*?<command-args>([\s\S]*?)<\/command-args>\s*$/);
+  if (!command) return text;
+  const name = command[1].trim();
+  const args = command[2].trim();
+  return args ? `${name} ${args}` : name;
 }
 
 function normalizeHistoryMessage(record, fallbackTime) {
@@ -127,8 +141,8 @@ function normalizeHistoryMessage(record, fallbackTime) {
   return {
     id: shortString(record.uuid, 500) || `${record.session_id || 'history'}-${fallbackTime}`,
     role: record.type,
-    content: text.join(''),
-    createdAt: messageTime(message, fallbackTime),
+    content: visibleText(text.join('')),
+    createdAt: messageTime(record, fallbackTime),
     status: 'complete',
     ...(tools.length ? { tools } : {}),
     ...(usage ? { usage } : {}),
@@ -169,7 +183,8 @@ export class NativeSessionService {
         const background = [prior, session].find((entry) => entry.kind === 'background');
         const owner = [prior, session].find((entry) => entry.action === 'resumeAfterExit')
           || [prior, session].find((entry) => entry.action === 'openTerminal');
-        const merged = { ...prior, ...session, ...(background || {}), name: background?.name || session.name || prior.name };
+        const updatedAt = Math.max(prior.updatedAt || 0, session.updatedAt || 0) || null;
+        const merged = { ...prior, ...session, ...(background || {}), name: background?.name || session.name || prior.name, updatedAt };
         if (owner) Object.assign(merged, { action: owner.action, terminalCommand: owner.terminalCommand, pid: owner.pid || merged.pid });
         sessions.set(session.sessionId, merged);
       }
@@ -217,7 +232,11 @@ export class NativeSessionService {
     if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 200) throw Object.assign(new Error('Invalid native session id'), { statusCode: 400 });
     const session = (await this.list()).find((entry) => entry.sessionId === sessionId);
     if (!session) throw Object.assign(new Error('Native Claude session not found'), { statusCode: 404 });
-    if (session.action === 'openTerminal' || session.action === 'resumeAfterExit') throw Object.assign(new Error('Native Claude session is active; use its terminal instead'), { statusCode: 409 });
+    if (session.action === 'openTerminal' || session.action === 'resumeAfterExit') {
+      const owner = session.status === 'idle' ? 'An idle Claude terminal still holds this session' : 'Another Claude process still holds this session';
+      const pid = session.pid ? ` (PID ${session.pid})` : '';
+      throw Object.assign(new Error(`${owner}${pid}. Its last turn may be done, but the process has not exited. Use that terminal, or exit it before sending here. History sync remains available.`), { statusCode: 409 });
+    }
     if (session.action !== 'resume') throw Object.assign(new Error('Native Claude session cannot be resumed'), { statusCode: 409 });
     return session;
   }
@@ -229,7 +248,7 @@ export class NativeSessionService {
     if (!session) throw Object.assign(new Error('Native Claude session not found'), { statusCode: 404 });
     let source;
     try {
-      source = await this.sdk.getSessionMessages(sessionId, { dir: session.cwd, offset, limit: limit + 1 });
+      source = await this.sdk.getSessionMessages(sessionId, { offset, limit: limit + 1 });
     } catch (error) {
       throw Object.assign(new Error('Unable to read native Claude session history'), { statusCode: 502, cause: error });
     }
@@ -238,6 +257,43 @@ export class NativeSessionService {
     const fallback = session.startedAt || 0;
     const messages = source.slice(0, limit).map((message, index) => normalizeHistoryMessage(message, fallback + index)).filter(Boolean);
     return { messages, nextOffset: hasMore ? offset + limit : null };
+  }
+
+  async historySnapshot(sessionId, previousToken = null) {
+    if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 200) throw Object.assign(new Error('Invalid native session id'), { statusCode: 400 });
+    let before;
+    try {
+      before = await this.sdk.getSessionInfo(sessionId);
+    } catch (error) {
+      throw Object.assign(new Error('Unable to read native Claude session metadata'), { statusCode: 502, cause: error });
+    }
+    if (!before) throw Object.assign(new Error('Native Claude session not found'), { statusCode: 404 });
+    const changeToken = sessionChangeToken(before);
+    if (previousToken === changeToken) return null;
+
+    let source;
+    try {
+      source = await this.sdk.getSessionMessages(sessionId, { limit: 10_001 });
+    } catch (error) {
+      throw Object.assign(new Error('Unable to read native Claude session history'), { statusCode: 502, cause: error });
+    }
+    if (!Array.isArray(source)) throw Object.assign(new Error('Claude SDK returned invalid session history'), { statusCode: 502 });
+    if (source.length > 10_000) throw Object.assign(new Error('Native Claude session history exceeds the safe snapshot limit'), { statusCode: 413 });
+
+    let after;
+    try {
+      after = await this.sdk.getSessionInfo(sessionId);
+    } catch (error) {
+      throw Object.assign(new Error('Unable to verify native Claude session metadata'), { statusCode: 502, cause: error });
+    }
+    if (!after || sessionChangeToken(after) !== changeToken) {
+      throw Object.assign(new Error('Native Claude session changed while history was being read'), { statusCode: 409, transient: true });
+    }
+    const fallback = before.createdAt ?? before.lastModified ?? 0;
+    return {
+      changeToken,
+      messages: source.map((message, index) => normalizeHistoryMessage(message, fallback + index)).filter(Boolean),
+    };
   }
 
   async rename(sessionId, title) {

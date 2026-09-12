@@ -1,10 +1,22 @@
-# Claude Code Workspace
+# ARRA Claude Code
 
 A Codex-inspired chat UI for Claude Code on your Mac. Real sessions, repository threads, and streaming replies.
 
-![Claude Code Workspace desktop conversation with token usage](docs/images/token-usage-desktop.png)
+![ARRA Claude Code new-chat workspace](docs/images/tutorial-new-chat.png)
 
 **[Explore features →](docs/features.md)** · [Tutorial](docs/tutorials/using-claude-code-chat-ui.md) · [Deployment](docs/cloudflare.md) · [Mobile view](docs/images/token-usage-mobile.png)
+
+## See it in action
+
+| Stream a reply | Pick up a saved session |
+| --- | --- |
+| ![Safe streamed reply with token usage](docs/images/tutorial-streamed-reply.png) | ![Saved Claude sessions](docs/images/tutorial-native-sessions.png) |
+
+| Organize each project | Load the whole conversation |
+| --- | --- |
+| ![Repository sorting, rename, and hide controls](docs/images/tutorial-repository-tools.png) | ![Long conversation fully loaded](docs/images/tutorial-history-loaded.png) |
+
+**[Open the full visual walkthrough →](docs/tutorials/using-claude-code-chat-ui.md)**
 
 ## Quick start
 
@@ -35,6 +47,10 @@ Cloudflare hosts the interface; conversations and execution stay on your selecte
 ![Comet shield menu with Block ads and trackers off for this site](docs/images/comet-site-adblock-off.png)
 
 **Shield → “Block ads and trackers” off for this site only → Reload.** If it does not help, restore blocking. [Troubleshooting →](docs/cloudflare.md#quick-per-site-fix-the-shield-menu)
+
+## Special thanks
+
+Special thanks to **Pinyo Boy Tanradtanamonthon** for the idea that inspired ARRA Claude Code.
 
 ---
 

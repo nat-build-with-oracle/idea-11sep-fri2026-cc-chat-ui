@@ -127,6 +127,40 @@ test('tool execution completes on tool_result, not content block stop', () => {
   assert.equal(last.tools[0].status, 'complete');
 });
 
+test('normalizer captures native assistant and tool-result record UUIDs only', () => {
+  const updates = [];
+  const parser = new StreamNormalizer(update => updates.push(update));
+  parser.push(`${JSON.stringify({ type: 'stream_event', uuid: 'stream-delta-uuid', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'same' } } })}\n`);
+  parser.push(`${JSON.stringify({ type: 'user', uuid: 'main-human-uuid', message: { content: [{ type: 'text', text: 'prompt' }] } })}\n`);
+  parser.push(`${JSON.stringify({ type: 'assistant', uuid: 'assistant-record-1', message: { id: 'same-api-id', content: [{ type: 'text', text: 'same' }] } })}\n`);
+  parser.push(`${JSON.stringify({ type: 'assistant', uuid: 'assistant-record-2', message: { id: 'same-api-id', content: [{ type: 'text', text: 'same' }] } })}\n`);
+  parser.push(`${JSON.stringify({ type: 'user', uuid: 'tool-result-record', message: { content: [{ type: 'tool_result', tool_use_id: 'tool', content: 'done' }] } })}\n`);
+  parser.finish();
+  assert.equal('sourceUuids' in updates[0], false);
+  assert.equal('sourceUuids' in updates[1], false);
+  assert.deepEqual(updates.at(-1).sourceUuids, ['assistant-record-1', 'assistant-record-2', 'tool-result-record']);
+  assert.deepEqual([...parser.sourceUuids], ['assistant-record-1', 'assistant-record-2', 'tool-result-record']);
+});
+
+test('runner exposes captured native source UUIDs in updates and its final result', async () => {
+  let finalUpdate;
+  const runner = new ClaudeRunner({ spawnFn() { return fakeChild(child => {
+    child.stdout.end([
+      JSON.stringify({ type: 'assistant', uuid: 'assistant-record', session_id: 'source-session', message: { id: 'api-id', content: [{ type: 'tool_use', id: 'tool', name: 'Read', input: {} }] } }),
+      JSON.stringify({ type: 'user', uuid: 'tool-result-record', session_id: 'source-session', message: { content: [{ type: 'tool_result', tool_use_id: 'tool', content: 'ok' }] } }),
+      JSON.stringify({ type: 'result', subtype: 'success', result: 'done', is_error: false, session_id: 'source-session' }),
+      '',
+    ].join('\n'));
+    child.emit('close', 0, null);
+  }); } });
+  const result = await runner.run({
+    chatId: 'source-uuids', model: 'sonnet', permissionMode: 'default', cwd: process.cwd(), prompt: 'x',
+    onUpdate(update) { if (update.final) finalUpdate = update; },
+  });
+  assert.deepEqual(finalUpdate.sourceUuids, ['assistant-record', 'tool-result-record']);
+  assert.deepEqual(result.sourceUuids, ['assistant-record', 'tool-result-record']);
+});
+
 test('runner cancellation interrupts the process and resolves', async () => {
   let child;
   const runner = new ClaudeRunner({ spawnFn() { child = fakeChild(); return child; } });
@@ -135,6 +169,25 @@ test('runner cancellation interrupts the process and resolves', async () => {
   const result = await done;
   assert.equal(result.interrupted, true);
   assert.equal(result.ok, false);
+});
+
+test('runner marks only child process spawn errors as launch failures', async () => {
+  const spawnErrorRunner = new ClaudeRunner({ spawnFn() {
+    const child = fakeChild();
+    queueMicrotask(() => child.emit('error', new Error('spawn ENOENT')));
+    return child;
+  } });
+  const failedLaunch = await spawnErrorRunner.run({ chatId: 'spawn-error', model: 'sonnet', permissionMode: 'default', cwd: process.cwd(), prompt: 'x', onUpdate() {} });
+  assert.equal(failedLaunch.launchFailed, true);
+  assert.match(failedLaunch.error, /ENOENT/);
+
+  const exitRunner = new ClaudeRunner({ spawnFn() { return fakeChild(child => {
+    child.stderr.end('command failed');
+    child.emit('close', 2, null);
+  }); } });
+  const nonzeroExit = await exitRunner.run({ chatId: 'nonzero', model: 'sonnet', permissionMode: 'default', cwd: process.cwd(), prompt: 'x', onUpdate() {} });
+  assert.equal(nonzeroExit.ok, false);
+  assert.equal('launchFailed' in nonzeroExit, false);
 });
 
 test('runner reports a wholly malformed successful stream as an error', async () => {

@@ -437,3 +437,49 @@ test('imported native threads resume from their exact original cwd after canonic
   assert.equal(launch.cwd, alias);
   assert.equal(launch.sessionId, native.sessionId);
 });
+
+test('load-all consumes imported history pages through the real API, stops, resumes, and persists its cursor', async t => {
+  const { loadRemainingHistory } = await import('../src/history-loading.ts');
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-load-all-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const native = { id: 'saved', cwd: process.cwd(), kind: 'saved', name: 'Paged', sessionId: 'paged-session', startedAt: 1, action: 'resume' };
+  const offsets = [];
+  const nativeSessions = {
+    async list() { return [native]; },
+    async resumable() { return native; },
+    async messages(id, { offset }) {
+      assert.equal(id, native.sessionId);
+      offsets.push(offset);
+      return {
+        messages: [{ id: `h${offset}`, role: 'assistant', content: `page ${offset}`, createdAt: new Date(0).toISOString(), history: { sourceUuid: `uuid${offset}`, blocks: [] } }],
+        nextOffset: offset < 4 ? offset + 1 : null,
+      };
+    },
+  };
+  const f = await fixture({ dataDir, nativeSessions }); t.after(f.close);
+  const post = { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' };
+  let chat = (await jsonRequest(`${f.origin}/api/native-sessions/paged-session/import`, post)).value;
+  const controller = new AbortController();
+  async function loadPage(offset) {
+    assert.equal(offset, chat.historyNextOffset);
+    const loaded = await jsonRequest(`${f.origin}/api/chats/${chat.id}/history`, post);
+    assert.equal(loaded.response.status, 200);
+    chat = loaded.value;
+    return { messages: chat.messages, nextOffset: chat.historyNextOffset };
+  }
+  const partial = await loadRemainingHistory({ offset: chat.historyNextOffset, signal: controller.signal, loadPage, onPage() { controller.abort(); } });
+  assert.deepEqual(partial, { complete: false, reason: 'cancelled', pages: 1 });
+  assert.equal(chat.historyNextOffset, 2);
+  assert.deepEqual(chat.messages.map(m => m.id), ['h0', 'h1']);
+  const finished = await loadRemainingHistory({ offset: chat.historyNextOffset, signal: new AbortController().signal, loadPage, onPage() {} });
+  assert.deepEqual(finished, { complete: true, pages: 3 });
+  assert.deepEqual(offsets, [0, 1, 2, 3, 4]);
+  assert.deepEqual(chat.messages.map(m => m.id), ['h0', 'h1', 'h2', 'h3', 'h4']);
+  assert.equal(chat.historyNextOffset, null);
+  assert.equal(chat.historyTruncated, false);
+  assert.equal(f.runner.calls.length, 0);
+  const { readFile } = await import('node:fs/promises');
+  const persisted = JSON.parse(await readFile(path.join(dataDir, 'state.json'), 'utf8')).chats.find(item => item.id === chat.id);
+  assert.equal(persisted.historyNextOffset, null);
+  assert.deepEqual(persisted.messages, chat.messages);
+});

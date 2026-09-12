@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeRunner } from './claude-runner.mjs';
 import { NativeSessionService } from './native-sessions.mjs';
+import { TranscriptSync } from './transcript-sync.mjs';
 import { RepositoryService } from './repositories.mjs';
 import { JsonStore, validateProjectPath } from './store.mjs';
 
@@ -204,6 +205,7 @@ export async function createApp(options = {}) {
   }
   const distDir = path.resolve(options.distDir || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist'));
   const broadcaster = makeBroadcaster(store);
+  const transcriptSync = new TranscriptSync({ store, nativeSessions, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
   const historyLoads = new Map();
 
   async function loadChatHistory(chatId) {
@@ -251,6 +253,13 @@ export async function createApp(options = {}) {
       assistant.content = result.text || assistant.content;
       assistant.tools = result.tools?.length ? result.tools.map((tool) => ({ ...tool, status: 'complete' })) : assistant.tools;
       if (result.usage) assistant.usage = result.usage;
+      if (result.sourceUuids?.length) assistant.nativeSourceIds = result.sourceUuids;
+      if (result.launchFailed) {
+        assistant.appOnly = true;
+        const user = chat.messages[chat.messages.indexOf(assistant) - 1];
+        if (user?.role === 'user') user.appOnly = true;
+      }
+      delete chat.sync;
       assistant.status = result.interrupted ? 'interrupted' : result.ok ? 'complete' : 'error';
       if (result.error && !result.interrupted) assistant.error = result.error;
       chat.status = 'idle';
@@ -264,7 +273,7 @@ export async function createApp(options = {}) {
     try {
       // Recheck native ownership immediately before launch, and retain the exact
       // native cwd even when the sidebar groups symlink aliases as one repo.
-      const native = launch.nativeImported && launch.sessionId ? await nativeSessions.resumable(launch.sessionId) : null;
+      const native = launch.sessionId ? await nativeSessions.resumable(launch.sessionId) : null;
       const launchState = store.snapshot();
       const chat = findChat(launchState, chatId);
       const assistant = chat.messages.find((message) => message.id === assistantId);
@@ -275,7 +284,7 @@ export async function createApp(options = {}) {
         title: launch.title,
         model: launch.model,
         permissionMode: launch.permissionMode,
-        cwd: native ? native.cwd : launch.cwd,
+        cwd: native && launch.nativeImported ? native.cwd : launch.cwd,
         prompt,
         onUpdate(update) {
           void store.update((state) => {
@@ -286,13 +295,14 @@ export async function createApp(options = {}) {
             assistant.content = update.text;
             assistant.tools = update.tools;
             if (update.usage) assistant.usage = update.usage;
+            if (update.sourceUuids?.length) assistant.nativeSourceIds = update.sourceUuids;
             current.updatedAt = new Date().toISOString();
             return null;
           }).catch(() => {});
         },
       });
     } catch (error) {
-      done = Promise.resolve({ ok: false, error: error.message, text: '', tools: [] });
+      done = Promise.resolve({ ok: false, launchFailed: true, error: error.message, text: '', tools: [] });
     }
     await finishRun(chatId, assistantId, done);
   }
@@ -309,7 +319,10 @@ export async function createApp(options = {}) {
         if (!origin.corsOrigin) return json(response, 403, { error: 'Forbidden preflight' });
         return preflight(request, response);
       }
-      if (request.method === 'GET' && url.pathname === '/api/state') return json(response, 200, store.snapshot());
+      if (request.method === 'GET' && url.pathname === '/api/state') {
+        void transcriptSync.tick();
+        return json(response, 200, store.snapshot());
+      }
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();
         return json(response, 200, { ok: true, ...health, cwd, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
@@ -327,6 +340,7 @@ export async function createApp(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/events') {
         response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' });
         broadcaster.add(response);
+        void transcriptSync.tick();
         response.once('close', () => broadcaster.remove(response));
         return;
       }
@@ -419,6 +433,14 @@ export async function createApp(options = {}) {
         });
         return json(response, 200, { session, chat });
       }
+      const syncChatId = routeId(url.pathname, '/sync');
+      if (syncChatId && request.method === 'POST') {
+        await body(request);
+        const chat = findChat(store.snapshot(), syncChatId);
+        if (chat.status === 'running') throw apiError('Wait for the web response to finish before syncing', 409);
+        await transcriptSync.syncChat(syncChatId, { force: true });
+        return json(response, 200, findChat(store.snapshot(), syncChatId));
+      }
       const historyChatId = routeId(url.pathname, '/history');
       if (historyChatId && request.method === 'POST') {
         await body(request);
@@ -467,10 +489,15 @@ export async function createApp(options = {}) {
         const input = await body(request);
         const content = value(input.content, 'Message content');
         const beforeSend = findChat(store.snapshot(), messageChatId);
+        if (beforeSend.status === 'running') throw apiError('Chat is already running', 409);
         if (beforeSend.nativeImported && beforeSend.historyNextOffset !== null && beforeSend.historyNextOffset !== undefined) {
           throw apiError('Load the complete native session history before sending a new message', 409);
         }
-        if (beforeSend.nativeImported && beforeSend.sessionId) await nativeSessions.resumable(beforeSend.sessionId);
+        if (beforeSend.sessionId) {
+          await nativeSessions.resumable(beforeSend.sessionId);
+          const synced = await transcriptSync.syncChat(messageChatId, { force: true });
+          if (!synced || findChat(store.snapshot(), messageChatId).sync?.status === 'error') throw apiError('Resolve the Claude history sync error before sending a new message', 409);
+        }
         const now = new Date().toISOString();
         const userMessage = { id: randomUUID(), role: 'user', content, createdAt: now, status: 'complete' };
         const assistant = { id: randomUUID(), role: 'assistant', content: '', createdAt: now, status: 'streaming', tools: [] };
@@ -478,6 +505,7 @@ export async function createApp(options = {}) {
           const current = findChat(state, messageChatId);
           if (current.status === 'running') throw apiError('Chat is already running', 409);
           current.messages.push(userMessage, assistant);
+          delete current.sync;
           current.status = 'running'; current.updatedAt = now;
           const project = projectFor(state, current.projectId);
           return {
@@ -519,7 +547,8 @@ export async function createApp(options = {}) {
   };
   handler.store = store;
   handler.runner = runner;
-  handler.close = async () => { broadcaster.close(); await runner.stopAll?.(); };
+  handler.transcriptSync = transcriptSync;
+  handler.close = async () => { broadcaster.close(); await transcriptSync.close(); await runner.stopAll?.(); };
   return handler;
 }
 

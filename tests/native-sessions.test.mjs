@@ -99,14 +99,18 @@ test('saved SDK sessions merge with active inventory and active ownership wins',
   assert.equal(sessions.find((item) => item.sessionId === 'same').kind, 'background');
   assert.equal(sessions.find((item) => item.sessionId === 'same').action, 'openTerminal');
   assert.equal(sessions.find((item) => item.sessionId === 'same').name, 'Saved title');
+  assert.equal(sessions.find((item) => item.sessionId === 'same').updatedAt, 20);
   assert.equal(sessions.find((item) => item.sessionId === 'saved').kind, 'saved');
+  assert.equal(sessions.find((item) => item.sessionId === 'saved').updatedAt, 40);
 });
 
-test('history is normalized losslessly and paginated with an exact discovered cwd', async () => {
+test('history is normalized losslessly and paginated without trusting an active cwd', async () => {
   const cwd = process.cwd();
   let getOptions;
-  const fixture = serviceWith([], null, {
-    listSessions: async () => [{ sessionId: 'history', cwd, summary: 'History', createdAt: 1000, lastModified: 2000 }],
+  const fixture = serviceWith([
+    { id: 'live', cwd, kind: 'interactive', sessionId: 'history', status: 'idle' },
+  ], null, {
+    listSessions: async () => [{ sessionId: 'history', cwd: '/opt/black-oracle', summary: 'History', createdAt: 1000, lastModified: 2000 }],
     getSessionMessages: async (id, options) => {
       assert.equal(id, 'history');
       getOptions = options;
@@ -117,11 +121,25 @@ test('history is normalized losslessly and paginated with an exact discovered cw
     },
   });
   const page = await fixture.service.messages('history', { offset: 4, limit: 1 });
-  assert.deepEqual(getOptions, { dir: cwd, offset: 4, limit: 2 });
+  assert.deepEqual(getOptions, { offset: 4, limit: 2 });
   assert.equal(page.nextOffset, 5);
   assert.equal(page.messages[0].content, 'Before  after');
   assert.deepEqual(page.messages[0].history.blocks.map((block) => block.type), ['text', 'tool', 'text']);
   assert.equal(page.messages[0].tools[0].name, 'Read');
+});
+
+test('history presents Claude slash-command envelopes as the command the user entered', async () => {
+  const cwd = process.cwd();
+  const fixture = serviceWith([], null, {
+    listSessions: async () => [{ sessionId: 'commands', cwd, summary: 'Commands', createdAt: 1000 }],
+    getSessionMessages: async () => [{
+      type: 'user', uuid: 'command-record', session_id: 'commands', parent_tool_use_id: null,
+      message: { content: [{ type: 'text', text: '<command-name>/list-agents</command-name>\n<command-message>list-agents</command-message>\n<command-args></command-args>' }] },
+    }],
+  });
+  const page = await fixture.service.messages('commands');
+  assert.equal(page.messages[0].content, '/list-agents');
+  assert.equal(page.messages[0].history.blocks[0].text.includes('<command-name>'), true);
 });
 
 test('history exposes only complete assistant usage and never fabricates missing or partial totals', async () => {
@@ -194,17 +212,103 @@ test('an attached interactive record never erases its background agent or active
 });
 
 
-test('native grouping resolves symlink cwd while SDK history uses its original directory', async (t) => {
+test('native grouping resolves symlink cwd while SDK history remains unscoped', async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'cc-native-alias-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const alias = path.join(directory, 'alias');
   await symlink(process.cwd(), alias, 'dir');
   const fixture = serviceWith([], null, {
     listSessions: async () => [{ sessionId: 'alias-session', cwd: alias, summary: 'Alias', createdAt: 1 }],
-    getSessionMessages: async (id, options) => { assert.equal(options.dir, alias); return []; },
+    getSessionMessages: async (id, options) => { assert.deepEqual(options, { offset: 0, limit: 101 }); return []; },
   });
   const [session] = await fixture.service.list();
   assert.equal(session.cwd, alias);
   assert.equal(session.canonicalPath, await realpath(alias));
   await fixture.service.messages('alias-session');
+});
+
+test('history timestamps prefer transcript record metadata over nested message metadata', async () => {
+  const fixture = serviceWith([], null, {
+    listSessions: async () => [{ sessionId: 'timestamps', cwd: process.cwd(), summary: 'Times', createdAt: 1 }],
+    getSessionMessages: async () => [{
+      type: 'user', uuid: 'timestamped', session_id: 'timestamps', parent_tool_use_id: null,
+      timestamp: '2026-09-11T12:34:56.000Z',
+      message: { timestamp: '2020-01-01T00:00:00.000Z', content: 'hello' },
+    }],
+  });
+  const page = await fixture.service.messages('timestamps');
+  assert.equal(page.messages[0].createdAt, '2026-09-11T12:34:56.000Z');
+});
+
+test('history snapshots skip the full read when the metadata token is unchanged', async () => {
+  let messageReads = 0;
+  const info = { sessionId: 'snapshot', summary: 'Snapshot', cwd: '/opt/black-oracle', lastModified: 12, fileSize: 34, createdAt: 1 };
+  const fixture = serviceWith([], null, {
+    getSessionInfo: async (...args) => { assert.deepEqual(args, ['snapshot']); return info; },
+    getSessionMessages: async () => { messageReads += 1; return []; },
+  });
+  const first = await fixture.service.historySnapshot('snapshot');
+  assert.equal(messageReads, 1);
+  assert.deepEqual(first, { changeToken: '[12,34,"/opt/black-oracle"]', messages: [] });
+  assert.equal(await fixture.service.historySnapshot('snapshot', first.changeToken), null);
+  assert.equal(messageReads, 1);
+});
+
+test('changed history snapshots return the latest fully normalized transcript', async () => {
+  const info = { sessionId: 'snapshot', summary: 'Snapshot', cwd: '/new/project', lastModified: 13, fileSize: 50, createdAt: 1000 };
+  const fixture = serviceWith([], null, {
+    getSessionInfo: async () => info,
+    getSessionMessages: async (...args) => {
+      assert.deepEqual(args, ['snapshot', { limit: 10_001 }]);
+      return [
+        { type: 'assistant', uuid: 'a', session_id: 'snapshot', parent_tool_use_id: null, timestamp: '2026-09-12T00:00:00Z', message: { stop_reason: 'end_turn', usage: { input_tokens: 2, output_tokens: 3 }, content: [{ type: 'tool_use', id: 'tool', name: 'Read', input: { file: 'x' } }] } },
+        { type: 'system', uuid: 'ignored', session_id: 'snapshot', parent_tool_use_id: null, message: {} },
+      ];
+    },
+  });
+  const result = await fixture.service.historySnapshot('snapshot', 'old-token');
+  assert.equal(result.changeToken, '[13,50,"/new/project"]');
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].tools[0].name, 'Read');
+  assert.deepEqual(result.messages[0].usage, { inputTokens: 2, outputTokens: 3, scope: 'apiMessage' });
+  assert.equal(result.messages[0].createdAt, '2026-09-12T00:00:00.000Z');
+});
+
+test('history snapshots distinguish missing sessions and SDK failures from empty history', async () => {
+  await assert.rejects(serviceWith([], null, { getSessionInfo: async () => undefined }).service.historySnapshot('missing'), error => error.statusCode === 404);
+  await assert.rejects(serviceWith([], null, { getSessionInfo: async () => { throw new Error('metadata failed'); } }).service.historySnapshot('failed'), error => error.statusCode === 502);
+  await assert.rejects(serviceWith([], null, {
+    getSessionInfo: async () => ({ sessionId: 'failed', summary: 'x', lastModified: 1 }),
+    getSessionMessages: async () => { throw new Error('history failed'); },
+  }).service.historySnapshot('failed'), error => error.statusCode === 502);
+});
+
+test('history snapshots reject over-limit transcripts instead of returning partial data', async () => {
+  let infoReads = 0;
+  const fixture = serviceWith([], null, {
+    getSessionInfo: async () => { infoReads += 1; return { sessionId: 'large', summary: 'Large', lastModified: 1, fileSize: 2 }; },
+    getSessionMessages: async () => Array.from({ length: 10_001 }, (_, index) => ({ type: 'user', uuid: `m${index}`, session_id: 'large', parent_tool_use_id: null, message: { content: '' } })),
+  });
+  await assert.rejects(fixture.service.historySnapshot('large'), error => error.statusCode === 413 && /safe snapshot limit/.test(error.message));
+  assert.equal(infoReads, 1);
+});
+
+test('history snapshots reject a transcript that changes during the read with a transient conflict', async () => {
+  let infoReads = 0;
+  const fixture = serviceWith([], null, {
+    getSessionInfo: async () => ({ sessionId: 'moving', summary: 'Moving', cwd: '/project', lastModified: ++infoReads, fileSize: 10 }),
+    getSessionMessages: async () => [],
+  });
+  await assert.rejects(fixture.service.historySnapshot('moving'), error => error.statusCode === 409 && error.transient === true);
+  assert.equal(infoReads, 2);
+});
+
+test('idle interactive ownership explains the still-open terminal and PID', async () => {
+  const { service } = serviceWith([{ kind: 'interactive', cwd: process.cwd(), sessionId: 'idle-session', pid: 22735, status: 'idle' }]);
+  await assert.rejects(service.resumable('idle-session'), error => {
+    assert.equal(error.statusCode, 409);
+    assert.match(error.message, /idle.*22735/);
+    assert.match(error.message, /exit/i);
+    return true;
+  });
 });

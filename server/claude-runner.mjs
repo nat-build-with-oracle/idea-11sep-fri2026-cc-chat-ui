@@ -89,6 +89,7 @@ export class StreamNormalizer {
     this.segmentStart = null;
     this.currentSegment = '';
     this.assistantMessages = new Set();
+    this.sourceUuids = new Set();
     this.tools = new Map();
     this.toolIndexes = new Map();
     this.toolJson = new Map();
@@ -130,6 +131,7 @@ export class StreamNormalizer {
     if (typeof record.session_id === 'string') this.sessionId = record.session_id;
     if (record.type === 'stream_event') this.#streamEvent(record.event);
     if (record.type === 'assistant') {
+      if (typeof record.uuid === 'string' && record.uuid) this.sourceUuids.add(record.uuid);
       const snapshot = textFromAssistant(record.message);
       const messageKey = record.message?.id || JSON.stringify(record.message?.content ?? []);
       if (snapshot && !this.assistantMessages.has(messageKey)) {
@@ -145,7 +147,9 @@ export class StreamNormalizer {
       for (const tool of toolsFromAssistant(record.message)) this.tools.set(tool.id, tool);
     }
     if (record.type === 'user') {
-      for (const block of record.message?.content ?? []) {
+      const blocks = Array.isArray(record.message?.content) ? record.message.content : [];
+      if (blocks.some(block => block?.type === 'tool_result') && typeof record.uuid === 'string' && record.uuid) this.sourceUuids.add(record.uuid);
+      for (const block of blocks) {
         if (block?.type === 'tool_result' && block.tool_use_id && this.tools.has(block.tool_use_id)) this.tools.get(block.tool_use_id).status = 'complete';
       }
     }
@@ -190,6 +194,7 @@ export class StreamNormalizer {
       text: this.text,
       tools: [...this.tools.values()].map((tool) => structuredClone(tool)),
       ...(this.usage ? { usage: { ...this.usage } } : {}),
+      ...(this.sourceUuids.size ? { sourceUuids: [...this.sourceUuids] } : {}),
       final,
     });
   }
@@ -257,9 +262,10 @@ export class ClaudeRunner {
           text: normalizer.text,
           tools: [...normalizer.tools.values()],
           ...(normalizer.usage ? { usage: { ...normalizer.usage } } : {}),
+          ...(normalizer.sourceUuids.size ? { sourceUuids: [...normalizer.sourceUuids] } : {}),
         });
       };
-      child.once('error', (error) => finish({ ok: false, interrupted, error: error.message }));
+      child.once('error', (error) => finish({ ok: false, interrupted, error: error.message, launchFailed: true }));
       child.once('close', (code, signal) => finish({
         ok: code === 0 && !interrupted,
         interrupted,
