@@ -1,0 +1,22 @@
+[package]
+name = "arra-claude-code-server"
+version = "0.1.0"
+description = "Local ARRA Claude Code backend and menu bar controller"
+authors = ["Nat Build With Oracle"]
+edition = "2021"
+
+[lib]
+name = "arra_claude_code_server_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "arra-claude-code-server"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }

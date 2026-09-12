@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "No webview capabilities are required by the menu bar server.",
+  "windows": [],
+  "permissions": ["core:default"]
+}

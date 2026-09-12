@@ -30,6 +30,17 @@ npm run dev
 
 Open **http://127.0.0.1:5173**. Keep the backend running.
 
+### macOS menu-bar server
+
+The Tauri app packages the same frontend and supervises the same Node backend on `127.0.0.1:4318`. Its native menu shows server ownership and status, opens the dashboard, restarts a backend it launched, reveals recent output, and quits cleanly.
+
+```bash
+npm run tauri:build
+open "src-tauri/target/release/bundle/macos/ARRA Claude Code Server.app"
+```
+
+[Desktop build, runtime, and security notes →](docs/desktop.md)
+
 > **Full access is on by default.** Claude can modify files and run commands without asking. Use trusted projects, or select **Default permissions**. Never expose the unauthenticated backend publicly.
 
 ## Use the hosted UI
