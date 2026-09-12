@@ -92,6 +92,8 @@ Select **Sync now** to force a fresh read. A successful retry shows **Claude his
 
 Open **Theme** in the top bar and choose a preset. Paper is the default; the selection stays in this browser.
 
+![Full ARRA Claude Code page with the Pop, Light, Dark, and reading-size controls open](../images/tutorial-theme.png)
+
 ## Verify
 
 1. Refresh the current `#/chats/...` or `#/sessions/...` URL.
@@ -109,5 +111,5 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 ## Notes
 
 - Interface observed on 2026-09-12.
-- Screenshots were captured from the repository’s isolated smoke fixture at `127.0.0.1:4319`; no personal conversations, credentials, or production writes were used.
+- Full-page screenshots were captured from the repository’s isolated smoke fixture at `127.0.0.1:4319`; no personal conversations, credentials, or production writes were used.
 - Conversation data and execution stay on the selected local backend. Claude Code still contacts Anthropic.
