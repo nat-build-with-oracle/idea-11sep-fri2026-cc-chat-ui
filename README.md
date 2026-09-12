@@ -20,6 +20,10 @@ A Codex-inspired chat UI for Claude Code on your Mac. Real sessions, repository 
 | --- | --- |
 | ![Oracle mention picker](docs/images/tutorial-oracle-mention.png) | ![Active session display alias and copyable CLI](docs/images/tutorial-session-alias-cli.png) |
 
+| Expand every terminal command | Autocomplete `/` commands |
+| --- | --- |
+| ![Full resume, tmux, and one-shot commands](docs/images/tutorial-full-commands.png) | ![Slash command suggestions](docs/images/tutorial-slash-commands.png) |
+
 **[Open the full visual walkthrough →](docs/tutorials/using-claude-code-chat-ui.md)**
 
 ## Quick start

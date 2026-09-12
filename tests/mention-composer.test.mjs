@@ -68,3 +68,32 @@ test('autocomplete keyboard contract guards IME and reserves closed Enter for fo
   assert.match(source, /event\.currentTarget\.form\?\.requestSubmit\(\)/)
   assert.match(source, /onMouseDown=\{event => event\.preventDefault\(\)\}/)
 })
+
+test('slash popup reuses guarded keyboard selection without submitting the form', async () => {
+  const source = await readFile(new URL('../src/MentionComposer.tsx', import.meta.url), 'utf8')
+  assert.match(source, /slashCommandQueryAtCaret\(text, caret\)/)
+  assert.match(source, /Choose a slash command action/)
+  assert.match(source, /<span className="slash-kind">Command<\/span>/)
+  assert.match(source, /Action · \{command\.description\}/)
+  assert.match(source, /if \(optionCount && \(event\.key === 'Enter' \|\| event\.key === 'Tab'\)\) \{/)
+  const chooseSlashStart = source.indexOf('function chooseSlash')
+  const chooseSlash = source.slice(chooseSlashStart, source.indexOf('function remove', chooseSlashStart))
+  assert.match(chooseSlash, /onChange\(inserted\.text\)/)
+  assert.match(chooseSlash, /setSlashQuery\(null\)/)
+  assert.doesNotMatch(chooseSlash, /requestSubmit/)
+  assert.ok(source.indexOf('if (optionCount &&') < source.indexOf('form?.requestSubmit()'))
+})
+
+test('selection events preserve keyboard position when the active query is unchanged', async t => {
+  const { sameComposerQuery } = await loadComposer(t)
+  const query = { start: 0, end: 1, fragment: '' }
+  assert.equal(sameComposerQuery(query, { ...query }), true)
+  assert.equal(sameComposerQuery(query, { ...query, fragment: 'r' }), false)
+  assert.equal(sameComposerQuery(query, null), false)
+
+  const source = await readFile(new URL('../src/MentionComposer.tsx', import.meta.url), 'utf8')
+  assert.match(source, /if \(resetActive && queryChanged\) setActiveIndex\(0\)/)
+  assert.match(source, /updateQuery\(next, event\.currentTarget\.selectionStart, true\)/)
+  assert.match(source, /onSelect=\{event => updateQuery\(event\.currentTarget\.value, event\.currentTarget\.selectionStart\)\}/)
+  assert.doesNotMatch(source, /setSlashQuery\(slash\)\s*setActiveIndex\(0\)/)
+})

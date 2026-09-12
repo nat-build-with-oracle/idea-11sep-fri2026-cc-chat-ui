@@ -103,6 +103,12 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 2. Press **Enter** to select the reference, then send your message. The cursor returns to the composer. Only the selected name, path, and session ID metadata are shared—not the referenced conversation's history.
 3. Open a native session → **Session details** → **Set display alias** → **Save name**. Refresh: the alias remains, while the native name, ID, and history stay unchanged. This works even with its terminal open.
 4. Click the **Session** ID or the CLI command underneath to copy it. The command includes the known project folder. Copying does not run it; finish any existing native writer before resuming that session.
+5. Click **Show all commands** to expand every full command and its Copy button. Use **Copy tmux** for a named terminal, or **Copy -p test** for a one-shot sync check. Running the test adds a turn and uses Claude quota; the buttons themselves run nothing.
+6. Type **/** for `/rename` and `/list-agents` suggestions. **Enter/Tab** inserts a selection without sending; add arguments and send when ready.
+
+![Expanded copyable commands](../images/tutorial-full-commands.png)
+
+![Slash command suggestions](../images/tutorial-slash-commands.png)
 
 ![An active fixture session with its ARRA alias, native ID, and full resume command](../images/tutorial-session-alias-cli.png)
 

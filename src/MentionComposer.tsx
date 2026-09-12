@@ -1,5 +1,6 @@
 import { useId, useState, type KeyboardEvent, type RefObject } from 'react'
 import { containsCompleteToken, insertMentionToken, matchMentionCandidates, mentionKindLabel, mentionQueryAtCaret, type MentionCandidate, type MentionQuery } from './mentions'
+import { insertSlashCommand, matchSlashCommands, slashCommandQueryAtCaret, type SlashCommand, type SlashCommandQuery } from './slash-commands'
 
 const MAX_SELECTED = 32
 
@@ -59,17 +60,37 @@ export function boundMentionCandidate(candidate: MentionCandidate, selected: rea
   return selected.find(item => item.key === candidate.key) ?? candidate
 }
 
+export function sameComposerQuery(
+  left: MentionQuery | SlashCommandQuery | null,
+  right: MentionQuery | SlashCommandQuery | null,
+) {
+  return left === right || Boolean(
+    left && right
+    && left.start === right.start
+    && left.end === right.end
+    && left.fragment === right.fragment,
+  )
+}
+
 export default function MentionComposer({ value, onChange, candidates, selected, onSelectedChange, disabled, placeholder, inputRef }: MentionComposerProps) {
   const listboxId = useId()
   const [query, setQuery] = useState<MentionQuery | null>(null)
+  const [slashQuery, setSlashQuery] = useState<SlashCommandQuery | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const matches = query ? matchMentionCandidates(candidates, query) : []
-  const optionIndex = matches.length ? Math.min(activeIndex, matches.length - 1) : 0
+  const slashMatches = slashQuery ? matchSlashCommands(slashQuery) : []
+  const optionCount = query ? matches.length : slashMatches.length
+  const optionIndex = optionCount ? Math.min(activeIndex, optionCount - 1) : 0
+  const popupOpen = Boolean(query || slashQuery)
   const selectedAtLimit = selected.length >= MAX_SELECTED
 
-  function updateQuery(text: string, caret: number | null) {
-    setQuery(caret === null ? null : mentionQueryAtCaret(text, caret))
-    setActiveIndex(0)
+  function updateQuery(text: string, caret: number | null, resetActive = false) {
+    const mention = caret === null ? null : mentionQueryAtCaret(text, caret)
+    const slash = mention || caret === null ? null : slashCommandQueryAtCaret(text, caret)
+    const queryChanged = !sameComposerQuery(query, mention) || !sameComposerQuery(slashQuery, slash)
+    setQuery(mention)
+    setSlashQuery(slash)
+    if (resetActive && queryChanged) setActiveIndex(0)
   }
 
   function restoreCaret(caret: number) {
@@ -96,6 +117,14 @@ export default function MentionComposer({ value, onChange, candidates, selected,
     restoreCaret(inserted.text[inserted.caret] === ' ' ? inserted.caret + 1 : inserted.caret)
   }
 
+  function chooseSlash(command: SlashCommand) {
+    if (!slashQuery) return
+    const inserted = insertSlashCommand(value, slashQuery, command)
+    onChange(inserted.text)
+    setSlashQuery(null)
+    restoreCaret(inserted.caret)
+  }
+
   function remove(candidate: MentionCandidate) {
     const next = removeMentionFromDraft(value, candidate.token)
     onChange(next)
@@ -107,36 +136,39 @@ export default function MentionComposer({ value, onChange, candidates, selected,
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (event.key === 'Enter' && event.shiftKey) return
-    if (matches.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (optionCount && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      setActiveIndex(current => (current + direction + matches.length) % matches.length)
+      setActiveIndex(current => (current + direction + optionCount) % optionCount)
       return
     }
-    if (matches.length && (event.key === 'Enter' || event.key === 'Tab')) {
+    if (optionCount && (event.key === 'Enter' || event.key === 'Tab')) {
       event.preventDefault()
-      choose(matches[optionIndex])
+      if (query) choose(matches[optionIndex])
+      else chooseSlash(slashMatches[optionIndex])
       return
     }
-    if (query && event.key === 'Escape') {
-      event.preventDefault()
-      setQuery(null)
-      return
-    }
-    if (query && !matches.length && event.key === 'Enter') {
+    if (popupOpen && event.key === 'Escape') {
       event.preventDefault()
       setQuery(null)
+      setSlashQuery(null)
       return
     }
-    if (!query && event.key === 'Enter') {
+    if (popupOpen && !optionCount && event.key === 'Enter') {
+      event.preventDefault()
+      setQuery(null)
+      setSlashQuery(null)
+      return
+    }
+    if (!popupOpen && event.key === 'Enter') {
       event.preventDefault()
       event.currentTarget.form?.requestSubmit()
     }
   }
 
   return <div className="mention-composer">
-    {query && <div className="mention-menu" id={listboxId} role="listbox" aria-label="Reference an Oracle, repository, or session">
-      {matches.map((candidate, index) => <button
+    {popupOpen && <div className="mention-menu" id={listboxId} role="listbox" aria-label={query ? 'Reference an Oracle, repository, or session' : 'Choose a slash command action'}>
+      {query && matches.map((candidate, index) => <button
         type="button"
         role="option"
         aria-selected={index === optionIndex}
@@ -150,7 +182,21 @@ export default function MentionComposer({ value, onChange, candidates, selected,
         <span className={`mention-kind ${candidate.kind}`}>{mentionKindLabel(candidate)}</span>
         <span className="mention-option-copy"><strong>{candidate.name}</strong><span title={candidateTitle(candidate)}>{candidateMetadata(candidate)}</span></span>
       </button>)}
-      {!matches.length && <p className="mention-empty" role="status">No matching Oracles, repositories or sessions.</p>}
+      {slashQuery && slashMatches.map((command, index) => <button
+        type="button"
+        role="option"
+        aria-selected={index === optionIndex}
+        className={`mention-option slash-option ${index === optionIndex ? 'active' : ''}`}
+        id={`${listboxId}-option-${index}`}
+        key={command.token}
+        onMouseDown={event => event.preventDefault()}
+        onClick={() => chooseSlash(command)}
+      >
+        <span className="slash-kind">Command</span>
+        <span className="mention-option-copy"><strong className="slash-command-token">{command.token}</strong><span>Action · {command.description}</span></span>
+      </button>)}
+      {query && !matches.length && <p className="mention-empty" role="status">No matching Oracles, repositories or sessions.</p>}
+      {slashQuery && !slashMatches.length && <p className="mention-empty slash-empty" role="status">No matching command actions.</p>}
     </div>}
     <textarea
       ref={inputRef}
@@ -160,18 +206,21 @@ export default function MentionComposer({ value, onChange, candidates, selected,
         onChange(next)
         const retained = selected.filter(candidate => containsCompleteToken(next, candidate.token)).slice(0, MAX_SELECTED)
         if (retained.length !== selected.length) onSelectedChange(retained)
-        updateQuery(next, event.currentTarget.selectionStart)
+        updateQuery(next, event.currentTarget.selectionStart, true)
       }}
       onSelect={event => updateQuery(event.currentTarget.value, event.currentTarget.selectionStart)}
       onClick={event => updateQuery(event.currentTarget.value, event.currentTarget.selectionStart)}
-      onBlur={() => setQuery(null)}
+      onBlur={() => {
+        setQuery(null)
+        setSlashQuery(null)
+      }}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       aria-label="Message Claude"
       aria-autocomplete="list"
-      aria-controls={query ? listboxId : undefined}
-      aria-expanded={Boolean(query)}
-      aria-activedescendant={matches.length ? `${listboxId}-option-${optionIndex}` : undefined}
+      aria-controls={popupOpen ? listboxId : undefined}
+      aria-expanded={popupOpen}
+      aria-activedescendant={optionCount ? `${listboxId}-option-${optionIndex}` : undefined}
       rows={2}
       disabled={disabled}
     />

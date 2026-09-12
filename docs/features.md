@@ -32,6 +32,8 @@ Choose **Default permissions** in the composer to omit that flag. This headless 
 
 ### Agent messaging
 
+Type **/** at the start of the composer to autocomplete **/rename** or **/list-agents**, just like the **@** picker. Use **↑ / ↓**, then **Enter** or **Tab** to insert the command without sending it. Add arguments before sending; **Esc** closes suggestions. `/rename` is handled by this app; `/list-agents` is sent to Claude and depends on its runtime support.
+
 `/list-agents` inside Claude discovers eligible messageable peers. Native `ListAgents` and `SendMessage` are Claude runtime tools, **not** public host-side SDK RPC methods. The session inventory is not a list of verified messaging targets. Availability depends on Claude Code's runtime capabilities and recipient policy. This UI does not write private mailboxes or sockets or send peer messages automatically. See [Anthropic's cross-session messaging documentation](https://code.claude.com/docs/en/cross-session-messaging).
 
 ### Terminal / TTY
@@ -39,6 +41,8 @@ Choose **Default permissions** in the composer to omit that flag. This headless 
 The current Chat stream is structured JSON, **not a TTY**. A real terminal tab is feasible but not implemented; it would need a server-owned PTY, a browser terminal emulator, bidirectional input, and resize/lifecycle handling. `claude attach` applies to supported background jobs, not arbitrary running session UUIDs.
 
 ## CLI ↔ web history sync
+
+**Web send:** Claude's `stream-json` stdout → backend message store → SSE → browser. **External terminal send:** saved Claude history → SDK metadata/history polling → reconciliation → SSE. ARRA does not directly watch or reload raw JSONL files. An unimported, read-only native view loads history on demand; reopen or refresh it to fetch updates. Automatic reconciliation below applies to saved app chats linked to a Claude session.
 
 Chats linked to a Claude session now catch up automatically through the local backend, including chats first created here. The backend checks saved-session metadata every 2 seconds, reads changed history with the official SDK, and publishes the reconciled conversation through the existing SSE connection. A forced audit every 60 seconds also catches edits whose size/mtime stayed unchanged. Failed reads back off up to 30 seconds; at most three chats are checked concurrently, with a five-second wait bound per read. **Sync now** forces an immediate check.
 
@@ -103,3 +107,5 @@ Type **@** in the composer, then select an Oracle, repository, or session. Folde
 Selected references show removable context chips. A repository includes its full path; a session includes its displayed name, native Claude session ID, and project path. Only names, IDs and paths are attached—not conversation history. Referencing a session does not resume it, send it a message, or change the current chat's project. The expanded context is saved with the exact message sent to Claude so native-history sync remains consistent.
 
 The conversation header shows its **Claude Session ID**. Click it to copy the full value for `claude --resume`; this is separate from the browser's saved-chat route ID. The full **CLI** command underneath copies the resume command with the known project folder; copying never runs it. Sending with Enter returns focus to the composer after the request completes, ready for the next draft.
+
+**Show all commands** expands the complete, selectable resume, tmux, and one-shot commands, each with its own Copy button. Collapse it with **Hide commands**. Beside the CLI line, **Copy tmux** creates a command for a named tmux session (`repo-chat-title`) and `maw a` attachment. It requires both tools; an existing name stops the command instead of attaching to a different session. **Copy -p test** copies a one-shot prompt using the same Claude session ID and folder, with tools disabled. Running it uses Claude quota and adds a test turn to that session. Finish any existing Claude writer first. These buttons only copy text; they never launch a terminal or run a prompt.

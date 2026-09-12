@@ -17,7 +17,7 @@ test('resume command copies the exact visible CLI without executing it', async t
 
   let copied = ''
   const tree = SessionCommand({ sessionId: 'session-full-id', cwd: '/Users/beta/My Repo', onCopy(command) { copied = command } })
-  tree.props.onClick()
+  tree.props.children[0].props.onClick()
   assert.equal(copied, expected)
 
   const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'session-full-id', cwd: '/Users/beta/My Repo', onCopy() {} }))
@@ -38,4 +38,57 @@ test('shell quoting preserves apostrophes and cwd is optional', async t => {
 test('missing session IDs render no command or placeholder', async t => {
   const { default: SessionCommand } = await loadCommand(t)
   assert.equal(renderToStaticMarkup(createElement(SessionCommand, { sessionId: null, cwd: '/repo', onCopy() {} })), '')
+})
+
+test('the adjacent tmux button copies a named session launcher without replacing the resume command', async t => {
+  const { default: SessionCommand } = await loadCommand(t)
+  let copied
+  const props = { sessionId: 'native-id', cwd: '/repos/neo-oracle', title: 'arra memory one click', onCopy: (...args) => { copied = args } }
+  const tree = SessionCommand(props)
+  const html = renderToStaticMarkup(tree)
+  assert.match(html, /Copy tmux/)
+  assert.match(html, /Copy tmux command for neo-oracle-arra-memory-one-click/)
+  assert.equal((html.match(/<button/g) || []).length, 6)
+  tree.props.children[1].props.onClick()
+  assert.equal(copied[1], 'tmux')
+  assert.match(copied[0], /tmux new-session/)
+  assert.match(copied[0], /maw a/)
+  tree.props.children[0].props.onClick()
+  assert.deepEqual(copied, ["cd '/repos/neo-oracle' && claude --resume 'native-id'", 'resume'])
+})
+
+test('one-shot test copies an explicit prompt and preserves the current native session and cwd', async t => {
+  const { default: SessionCommand, oneShotCommand } = await loadCommand(t)
+  const id = 'cc08ff60-ab16-41ea-bac6-f3e96ea2d992'
+  const expected = `cd '/repos/neo-oracle' && claude --resume '${id}' -p 'Reply with exactly: ARRA sync test OK. Do not use tools or modify files.' --tools ''`
+  assert.equal(oneShotCommand(id, '/repos/neo-oracle'), expected)
+  let copied
+  const tree = SessionCommand({ sessionId: id, cwd: '/repos/neo-oracle', onCopy: (...args) => { copied = args } })
+  tree.props.children[2].props.onClick()
+  assert.deepEqual(copied, [expected, 'oneshot'])
+  assert.match(renderToStaticMarkup(tree), /Running uses Claude quota and appends a test turn/)
+  assert.doesNotMatch(expected, /no-session-persistence|fork-session|dangerously-skip-permissions/)
+})
+
+test('collapsed disclosure contains complete selectable commands and each copy matches its text', async t => {
+  const { default: SessionCommand, resumeCommand, oneShotCommand } = await loadCommand(t)
+  const copied = []
+  const tree = SessionCommand({ sessionId: 'exact-id', cwd: '/repos/neo-oracle', title: 'Memory test', onCopy: (...args) => copied.push(args) })
+  const disclosure = tree.props.children.find(child => child?.type === 'details')
+  assert.equal(disclosure.props.open, undefined)
+  const cards = disclosure.props.children[1].props.children[1]
+  assert.equal(cards.length, 3)
+  for (const card of cards) {
+    const displayed = card.props.children[1].props.children.props.children
+    card.props.children[0].props.children[1].props.onClick()
+    assert.equal(copied.at(-1)[0], displayed)
+  }
+  assert.deepEqual(copied.map(([, kind]) => kind), ['resume', 'tmux', 'oneshot'])
+  assert.equal(copied[0][0], resumeCommand('exact-id', '/repos/neo-oracle'))
+  assert.equal(copied[2][0], oneShotCommand('exact-id', '/repos/neo-oracle'))
+  const html = renderToStaticMarkup(tree)
+  assert.match(html, /Show all commands/)
+  assert.match(html, /Full session commands/)
+  assert.match(html, /Copy only—nothing runs here/)
+  assert.equal((html.match(/<pre><code>/g) || []).length, 3)
 })
