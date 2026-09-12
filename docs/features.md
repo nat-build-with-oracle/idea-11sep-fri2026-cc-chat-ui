@@ -115,3 +115,7 @@ The conversation header shows its **Claude Session ID**. Click it to copy the fu
 Inside **Show all commands**, the amber **Full access** cards add `--dangerously-skip-permissions` for resume, tmux, and one-shot commands. This bypasses permission checks: Claude may run commands and change files without asking. Use trusted projects and finish the existing writer first. Standard cards and quick-copy buttons are unchanged. The one-shot sync-test variant deliberately retains `--tools ''` and is labeled **tools off**; it is still a no-tool test, not a general-purpose full-access prompt. Copying never executes a command.
 
 ![Full-access command variants, using an isolated fixture](images/tutorial-full-access-commands.png)
+
+### Tmux names
+
+**Copy tmux** names both the session (`repo-chat-title`) and its initial window (`chat-title`). It also allows up to 100 characters for that session's left status label, without changing global tmux settings. A short label such as `[neo-oracl…]` does not mean the real session name changed; `1:claude` is a separate window label. The explicit window name disables tmux's automatic window renaming for that window. See the [tmux naming and status options](https://man.openbsd.org/tmux.1).

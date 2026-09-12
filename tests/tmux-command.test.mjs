@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { promisify } from 'node:util'
-import { tmuxResumeCommand, tmuxSessionName } from '../src/tmux-command.ts'
+import { tmuxResumeCommand, tmuxSessionName, tmuxWindowName } from '../src/tmux-command.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -18,15 +18,25 @@ test('tmux names use repository basename and an ASCII-safe normalized title', ()
   assert.ok(tmuxSessionName('abcdef12', '/repo', 'x'.repeat(300)).length <= 96)
 })
 
+test('tmux window names use the title, then short ID, then a safe fallback', () => {
+  assert.equal(tmuxWindowName('12345678-abcd', 'ARRA memory one click'), 'arra-memory-one-click')
+  assert.equal(tmuxWindowName('abcdef12-rest', 'ความทรงจำ'), 'abcdef12')
+  assert.equal(tmuxWindowName('ความทรงจำ', 'ผู้ช่วย'), 'session')
+  const long = tmuxWindowName('abcdef12', `${'long-title-'.repeat(20)}---`)
+  assert.ok(long.length <= 96)
+  assert.doesNotMatch(long, /-$/)
+})
+
 test('tmux resume command quotes every argument and omits cwd when unknown', () => {
   assert.equal(
     tmuxResumeCommand('session-id', '/work/neo-oracle', 'Memory'),
-    "tmux new-session -d -s 'neo-oracle-memory' -c '/work/neo-oracle' 'claude --resume '\\''session-id'\\''' &&\nmaw a 'neo-oracle-memory'",
+    "tmux new-session -d -s 'neo-oracle-memory' -n 'memory' -c '/work/neo-oracle' 'claude --resume '\\''session-id'\\''' &&\ntmux set-option -t 'neo-oracle-memory' status-left-length 100 &&\nmaw a 'neo-oracle-memory'",
   )
   assert.equal(
     tmuxResumeCommand('session-id', undefined, 'Memory'),
-    "tmux new-session -d -s 'claude-memory' 'claude --resume '\\''session-id'\\''' &&\nmaw a 'claude-memory'",
+    "tmux new-session -d -s 'claude-memory' -n 'memory' 'claude --resume '\\''session-id'\\''' &&\ntmux set-option -t 'claude-memory' status-left-length 100 &&\nmaw a 'claude-memory'",
   )
+  assert.doesNotMatch(tmuxResumeCommand('session-id', '/repo', 'Memory'), /set-option -g/)
 })
 
 async function mockCommands(t) {
@@ -67,7 +77,8 @@ test('generated script passes literal values to mocks and never evaluates inject
   const calls = await runScript(tmuxResumeCommand(sessionId, cwd, 'Fix; $(touch nope)'), mocks)
 
   assert.deepEqual(calls, [
-    { command: 'tmux', args: ['new-session', '-d', '-s', name, '-c', cwd, `claude --resume 'id'\\''; touch ${marker}; echo '\\'''`] },
+    { command: 'tmux', args: ['new-session', '-d', '-s', name, '-n', 'fix-touch-nope', '-c', cwd, `claude --resume 'id'\\''; touch ${marker}; echo '\\'''`] },
+    { command: 'tmux', args: ['set-option', '-t', name, 'status-left-length', '100'] },
     { command: 'maw', args: ['a', name] },
   ])
   await assert.rejects(access(marker))
@@ -84,6 +95,7 @@ test('full-access tmux places permission bypass inside the quoted Claude command
   const script = tmuxResumeCommand('session-id', '/work/neo-oracle', 'Memory', true)
   const calls = await runScript(script, mocks)
   assert.equal(calls[0].args.at(-1), "claude --resume 'session-id' --dangerously-skip-permissions")
+  assert.deepEqual(calls[1].args, ['set-option', '-t', 'neo-oracle-memory', 'status-left-length', '100'])
   assert.equal((script.match(/--dangerously-skip-permissions/g) || []).length, 1)
   assert.doesNotMatch(tmuxResumeCommand('session-id', '/work/neo-oracle', 'Memory'), /dangerously/)
 })
