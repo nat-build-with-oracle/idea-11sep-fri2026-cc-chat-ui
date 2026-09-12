@@ -16,7 +16,7 @@
     "deploy": "npm run build && npx wrangler@4.130.0 deploy",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "npm run build && tauri build",
+    "tauri:build": "npm run build && tauri build && node scripts/finalize-dmg.mjs",
     "tauri:check": "npm run build && npm run tauri:resources && cargo check --manifest-path src-tauri/Cargo.toml",
     "tauri:test": "npm run build && npm run tauri:resources && cargo test --manifest-path src-tauri/Cargo.toml",
     "tauri:resources": "node scripts/prepare-tauri-resources.mjs"

@@ -5,8 +5,7 @@
   "identifier": "com.buildwithoracle.arra-claude-code-server",
   "build": {
     "beforeBuildCommand": "npm run tauri:resources",
-    "beforeDevCommand": "npm run dev:client",
-    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run build && npm run tauri:resources",
     "frontendDist": "../dist"
   },
   "app": {
@@ -20,8 +19,34 @@
     "category": "DeveloperTool",
     "shortDescription": "Local Claude Code chat backend",
     "longDescription": "Runs the ARRA Claude Code local backend and opens its dashboard from the macOS menu bar.",
-    "resources": { "../.local/tauri-runtime": "app" },
-    "targets": ["app", "dmg"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"]
+    "macOS": {
+      "dmg": {
+        "windowSize": {
+          "width": 820,
+          "height": 460
+        },
+        "appPosition": {
+          "x": 220,
+          "y": 210
+        },
+        "applicationFolderPosition": {
+          "x": 600,
+          "y": 210
+        }
+      }
+    },
+    "resources": {
+      "../.local/tauri-runtime": "app"
+    },
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ]
   }
 }

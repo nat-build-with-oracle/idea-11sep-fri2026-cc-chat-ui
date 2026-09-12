@@ -49,6 +49,7 @@ test('sidebar actions have explicit labels and rename does not activate the thre
   const row = SidebarThread({ title: 'hello', selected: true, nested: true, nativeId: 'session-a', onSelect() { selected++ }, onRename() { renamed++ } })
   const markup = renderToStaticMarkup(row)
   assert.match(markup, /aria-label="Rename hello"/)
+  assert.match(markup, /title="Rename display name"/)
   assert.match(markup, /data-native-thread="session-a"/)
   assert.match(markup, /aria-current="page"/)
   assert.equal((markup.match(/<button/g) || []).length, 2)
@@ -59,6 +60,7 @@ test('sidebar actions have explicit labels and rename does not activate the thre
   assert.equal(selected, 1)
   const locked = renderToStaticMarkup(createElement(SidebarThread, { title: 'active', selected: false, locked: true, renameDisabled: true, onSelect() {}, onRename() {} }))
   assert.match(locked, /aria-label="Rename active"[^>]*disabled=""/)
+  assert.match(locked, /title="Rename unavailable while another change is saving"/)
 })
 
 test('App targets sidebar renames by identity and keeps display aliases out of project creation', async () => {

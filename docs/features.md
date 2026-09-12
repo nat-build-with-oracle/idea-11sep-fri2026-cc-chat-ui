@@ -16,8 +16,8 @@
 - **Appearance:** Pop, Light, and Dark themes, plus Comfortable/Larger reading sizes. The Theme control saves browser preferences immediately.
 - **Your chats:** a personal inbox with real status filters and project-derived initials—not invented agent portraits or presence. Sidebar destinations stay neutral until current; `aria-current` and one shared selected tint prevent New chat and Your chats from looking active together.
 - **Rename threads:** use the pencil beside a sidebar thread (shown on hover, keyboard focus, or touch), Session details, or `/rename My session name`. The pencil targets that thread without navigating away from the conversation you are reading. Active native sessions must be stopped before renaming. Existing native names are updated through the official Claude Agent SDK, not by rewriting transcript files.
-- **Native sessions:** browse three non-overlapping sources: **Agents** shows background jobs from `claude agents --json --all`, **Terminals** shows interactive CLI sessions, and **Saved** shows conversations from the SDK. An attached background job stays in Agents instead of appearing twice. Inspect history, load longer conversations, and resume inactive sessions here. Active sessions remain read-only; copy their terminal command to continue in Claude Code.
-- **Load all remaining:** one click loads history pages in sequence, with a page count and **Stop loading**. **Load more** still fetches one page. Loading preserves the current reading position and reveals a floating **Jump to bottom** control; use it to move smoothly to the newest message and resume auto-follow. Stopping, navigating away, or a failed request keeps completed pages; retry continues at the saved cursor. Imported chat pages persist on the backend; unimported native-view pages remain in this tab until navigation or refresh. Each action stops after 100 pages to bound work, explicitly says when more remains, and can be continued with another click.
+- **Native sessions:** browse three non-overlapping sources: **Agents** shows background jobs from `claude agents --json --all`, **Terminals** shows interactive CLI sessions, and **Saved** shows conversations from the SDK. An attached background job stays in Agents instead of appearing twice. Inspect history, load longer conversations, and resume inactive sessions here. Active session history remains read-only; copy its terminal command to continue in Claude Code. **Set display alias** stays available while the terminal is open: it changes only the ARRA label, preserving the original Claude name, ID, and history. Aliases persist on the selected backend and carry over when importing later.
+- **Load all remaining:** one click loads history pages in sequence, with a page count and **Stop loading**. **Load more** still fetches one page. **Follow latest** is on by default: new messages, streamed output, expanded tools, and loaded history stay at the bottom. Pause it to read earlier messages; the floating **Jump to bottom** resumes following. Your choice is remembered per backend. Stopping, navigating away, or a failed request keeps completed pages; retry continues at the saved cursor. Imported chat pages persist on the backend; unimported native-view pages remain in this tab until navigation or refresh. Each action stops after 100 pages to bound work, explicitly says when more remains, and can be continued with another click.
 - **Remove from workspace:** removes only this app's chat record, never the native transcript or project files.
 
 The SDK supplies saved session listing, history, and rename. The installed CLI supplies execution and live-agent inventory. Their supported behavior can vary with installed versions.
@@ -89,9 +89,17 @@ npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:4318** and keep the backend running. This is a local web app, not a packaged macOS application.
+Open **http://127.0.0.1:4318** and keep the backend running. Use the [Tauri menu-bar server](desktop.md) for a packaged macOS controller of the same backend.
 
 ## References
 
 - [Claude CLI](https://code.claude.com/docs/en/cli-usage), [headless execution](https://code.claude.com/docs/en/headless), [Agent SDK](https://code.claude.com/docs/en/agent-sdk/typescript)
 - [Original proposal](../PROPOSAL.md)
+
+## Mention repositories and sessions
+
+Type **@** in the composer, then select an Oracle, repository, or session. Folders ending in **`-oracle`** are labeled **Oracle**, based on their actual path rather than their display alias. Search by its name, folder path, or Claude session ID. Use **↑ / ↓** and **Enter** to select, or **Esc** to dismiss.
+
+Selected references show removable context chips. A repository includes its full path; a session includes its displayed name, native Claude session ID, and project path. Only names, IDs and paths are attached—not conversation history. Referencing a session does not resume it, send it a message, or change the current chat's project. The expanded context is saved with the exact message sent to Claude so native-history sync remains consistent.
+
+The conversation header shows its **Claude Session ID**. Click it to copy the full value for `claude --resume`; this is separate from the browser's saved-chat route ID. The full **CLI** command underneath copies the resume command with the known project folder; copying never runs it. Sending with Enter returns focus to the composer after the request completes, ready for the next draft.

@@ -72,7 +72,7 @@ ARRA initially loads a bounded page so large transcripts open quickly. Select **
 
 ![Saved conversation with load-all and load-more controls](../images/tutorial-history-controls.png)
 
-While loading all pages, **Stop** safely keeps every page already received. The app preserves your reading position; use the floating **Jump to bottom** control when you are ready to follow the newest messages.
+While loading all pages, **Stop** safely keeps every page already received. **Follow latest** starts on and keeps the newest messages visible. Click it to pause while reading earlier history; the floating **Jump to bottom** resumes following.
 
 ![Long conversation after all 235 fixture messages were loaded and jumped to the bottom](../images/tutorial-history-loaded.png)
 
@@ -93,6 +93,22 @@ Select **Sync now** to force a fresh read. A successful retry shows **Claude his
 Open **Theme** in the top bar and choose a preset. Paper is the default; the selection stays in this browser.
 
 ![Full ARRA Claude Code page with the Pop, Light, Dark, and reading-size controls open](../images/tutorial-theme.png)
+
+## 9. Share Oracle context and keep native names intact
+
+1. Type **@** in the composer and select a result. Folders ending in `-oracle` show **Oracle**; other folders show **Repository**. Session results include the native session ID and path.
+
+![Oracle context picker, using a temporary demo repository](../images/tutorial-oracle-mention.png)
+
+2. Press **Enter** to select the reference, then send your message. The cursor returns to the composer. Only the selected name, path, and session ID metadata are shared—not the referenced conversation's history.
+3. Open a native session → **Session details** → **Set display alias** → **Save name**. Refresh: the alias remains, while the native name, ID, and history stay unchanged. This works even with its terminal open.
+4. Click the **Session** ID or the CLI command underneath to copy it. The command includes the known project folder. Copying does not run it; finish any existing native writer before resuming that session.
+
+![An active fixture session with its ARRA alias, native ID, and full resume command](../images/tutorial-session-alias-cli.png)
+
+**Follow latest · On** follows rendered replies and tool output automatically. Click it to pause; **Jump to bottom** turns following back on.
+
+*Observed 12 September 2026 with isolated smoke fixtures; screenshots contain no real conversation history. Port 4330 is the temporary test backend, not the default port.*
 
 ## Verify
 

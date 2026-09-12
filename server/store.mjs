@@ -46,7 +46,10 @@ export class JsonStore {
     try {
       const parsed = JSON.parse(await readFile(this.file, 'utf8'));
       if (!Array.isArray(parsed.projects) || !Array.isArray(parsed.chats)) throw new Error('Invalid state shape');
-      this.state = { version: EMPTY_STATE_VERSION, projects: parsed.projects, chats: parsed.chats };
+      const nativeSessionAliases = Array.isArray(parsed.nativeSessionAliases)
+        ? parsed.nativeSessionAliases.filter((alias) => alias && typeof alias.sessionId === 'string' && typeof alias.title === 'string')
+        : [];
+      this.state = { version: EMPTY_STATE_VERSION, projects: parsed.projects, chats: parsed.chats, nativeSessionAliases };
       if (interruptedState(this.state)) await this.#write();
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
@@ -55,6 +58,7 @@ export class JsonStore {
         version: EMPTY_STATE_VERSION,
         projects: [{ id: randomUUID(), name: path.basename(this.cwd) || this.cwd, path: this.cwd, createdAt }],
         chats: [],
+        nativeSessionAliases: [],
       };
       await this.#write();
     }
@@ -69,7 +73,18 @@ export class JsonStore {
 
   snapshot() {
     if (!this.state) throw new Error('Store is not initialized');
-    return clone({ projects: this.state.projects, chats: this.state.chats });
+    return clone({ projects: this.state.projects, chats: this.state.chats, nativeSessionAliases: this.state.nativeSessionAliases });
+  }
+
+  summary() {
+    if (!this.state) throw new Error('Store is not initialized');
+    const { projects, chats } = this.state;
+    return {
+      projects: projects.length, chats: chats.length,
+      messages: chats.reduce((count, chat) => count + chat.messages.length, 0),
+      running: chats.filter((chat) => chat.status === 'running').length,
+      syncErrors: chats.filter((chat) => chat.sync?.status === 'error').length,
+    };
   }
 
   subscribe(listener) {

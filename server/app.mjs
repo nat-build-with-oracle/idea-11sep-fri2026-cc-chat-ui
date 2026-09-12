@@ -207,6 +207,17 @@ export async function createApp(options = {}) {
   const broadcaster = makeBroadcaster(store);
   const transcriptSync = new TranscriptSync({ store, nativeSessions, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
   const historyLoads = new Map();
+  const activeRuns = new Set();
+  let closing = false;
+  let closePromise;
+
+  async function listedNativeSessions() {
+    const aliases = new Map(store.snapshot().nativeSessionAliases.map((alias) => [alias.sessionId, alias.title]));
+    return (await nativeSessions.list()).map((session) => {
+      const alias = session.sessionId ? aliases.get(session.sessionId) : null;
+      return alias ? { ...session, name: alias } : session;
+    });
+  }
 
   async function loadChatHistory(chatId) {
     if (historyLoads.has(chatId)) return historyLoads.get(chatId);
@@ -277,7 +288,7 @@ export async function createApp(options = {}) {
       const launchState = store.snapshot();
       const chat = findChat(launchState, chatId);
       const assistant = chat.messages.find((message) => message.id === assistantId);
-      if (chat.status !== 'running' || assistant?.status !== 'streaming') return;
+      if (closing || chat.status !== 'running' || assistant?.status !== 'streaming') return;
       done = runner.run({
         chatId,
         sessionId: launch.sessionId,
@@ -315,6 +326,7 @@ export async function createApp(options = {}) {
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (!url.pathname.startsWith('/api/')) return serveSpa(request, response, distDir);
       setCorsHeaders(response, origin.corsOrigin);
+      if (closing) return json(response, 503, { error: 'Backend is shutting down' });
       if (request.method === 'OPTIONS') {
         if (!origin.corsOrigin) return json(response, 403, { error: 'Forbidden preflight' });
         return preflight(request, response);
@@ -327,9 +339,15 @@ export async function createApp(options = {}) {
         const health = await runner.health();
         return json(response, 200, { ok: true, ...health, cwd, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
       }
+      if (request.method === 'GET' && url.pathname === '/api/status') {
+        return json(response, 200, {
+          service: 'arra-claude-code', apiVersion: 1, ...store.summary(),
+          frontendOrigin, allowAnyOrigin,
+        });
+      }
       if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {
-        return json(response, 200, { sessions: await nativeSessions.list() });
+        return json(response, 200, { sessions: await listedNativeSessions() });
       }
       const historySessionId = nativeSessionId(url.pathname, '/messages');
       if (historySessionId && request.method === 'GET') {
@@ -393,9 +411,10 @@ export async function createApp(options = {}) {
             state.projects.push(project);
           }
           const startedAt = Number.isFinite(native.startedAt) ? new Date(native.startedAt).toISOString() : now;
+          const alias = state.nativeSessionAliases.find((item) => item.sessionId === native.sessionId);
           const chat = {
             id: randomUUID(),
-            title: native.name || 'Claude session',
+            title: alias?.title || native.name || 'Claude session',
             projectId: project.id,
             sessionId: native.sessionId,
             model,
@@ -419,19 +438,24 @@ export async function createApp(options = {}) {
         const input = await body(request);
         if (Object.keys(input).some((key) => key !== 'title')) throw apiError('Unknown native session field');
         const title = value(input.title, 'Title', 500);
-        const session = await nativeSessions.rename(renameNativeSessionId, title);
+        const native = (await nativeSessions.list()).find((candidate) => candidate.sessionId === renameNativeSessionId);
+        if (!native) throw apiError('Native session not found', 404);
         const chat = await store.update((state) => {
+          const now = new Date().toISOString();
+          const existingAlias = state.nativeSessionAliases.find((alias) => alias.sessionId === renameNativeSessionId);
+          if (existingAlias) { existingAlias.title = title; existingAlias.updatedAt = now; }
+          else state.nativeSessionAliases.push({ sessionId: renameNativeSessionId, title, updatedAt: now });
           let updated = null;
           for (const current of state.chats) {
             if (current.sessionId === renameNativeSessionId) {
               current.title = title;
-              current.updatedAt = new Date().toISOString();
+              current.updatedAt = now;
               updated = current;
             }
           }
           return updated;
         });
-        return json(response, 200, { session, chat });
+        return json(response, 200, { session: { ...native, name: title }, chat });
       }
       const syncChatId = routeId(url.pathname, '/sync');
       if (syncChatId && request.method === 'POST') {
@@ -502,6 +526,7 @@ export async function createApp(options = {}) {
         const userMessage = { id: randomUUID(), role: 'user', content, createdAt: now, status: 'complete' };
         const assistant = { id: randomUUID(), role: 'assistant', content: '', createdAt: now, status: 'streaming', tools: [] };
         const accepted = await store.update((state) => {
+          if (closing) throw apiError('Backend is shutting down', 503);
           const current = findChat(state, messageChatId);
           if (current.status === 'running') throw apiError('Chat is already running', 409);
           current.messages.push(userMessage, assistant);
@@ -521,7 +546,9 @@ export async function createApp(options = {}) {
           };
         });
         json(response, 202, accepted.chat);
-        void startRun(messageChatId, assistant.id, content, accepted.launch).catch(() => {});
+        const operation = startRun(messageChatId, assistant.id, content, accepted.launch);
+        activeRuns.add(operation);
+        void operation.finally(() => activeRuns.delete(operation)).catch(() => {});
         return;
       }
       const stopChatId = routeId(url.pathname, '/stop');
@@ -548,7 +575,27 @@ export async function createApp(options = {}) {
   handler.store = store;
   handler.runner = runner;
   handler.transcriptSync = transcriptSync;
-  handler.close = async () => { broadcaster.close(); await transcriptSync.close(); await runner.stopAll?.(); };
+  handler.close = () => {
+    if (closePromise) return closePromise;
+    closing = true;
+    closePromise = (async () => {
+      broadcaster.close();
+      await Promise.all([transcriptSync.close(), runner.stopAll?.()]);
+      // Run completion resolves before finishRun writes its final message. Wait
+      // for that finalization, including launches awaiting native ownership.
+      await Promise.allSettled([...activeRuns]);
+      if (store.summary().running > 0) await store.update((state) => {
+        for (const chat of state.chats) {
+          if (chat.status !== 'running') continue;
+          chat.status = 'idle';
+          for (const message of chat.messages) {
+            if (message.status === 'streaming') message.status = 'interrupted';
+          }
+        }
+      });
+    })();
+    return closePromise;
+  };
   return handler;
 }
 

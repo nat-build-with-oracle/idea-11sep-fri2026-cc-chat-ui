@@ -74,6 +74,16 @@ function openEvents(origin) {
   });
 }
 
+async function waitFor(check, message, timeoutMs = 1500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await check();
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${message}`);
+}
+
 test('API creates chats, runs messages, persists session, prevents concurrent sends and locks project', async (t) => {
   const f = await fixture(); t.after(f.close);
   const state = (await jsonRequest(`${f.origin}/api/state`)).value;
@@ -89,8 +99,14 @@ test('API creates chats, runs messages, persists session, prevents concurrent se
   const conflict = await jsonRequest(`${f.origin}/api/chats/${id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'again' }) });
   assert.equal(conflict.response.status, 409);
   f.runner.complete(id);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const finished = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+  const finished = await waitFor(async () => {
+    const current = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+    return current?.status === 'idle'
+      && current.sessionId === 'session-1'
+      && current.messages.at(-1)?.content === 'done'
+      ? current
+      : null;
+  }, 'completed first turn persistence');
   assert.equal(finished.sessionId, 'session-1');
   assert.equal(finished.messages.at(-1).content, 'done');
   const patch = await jsonRequest(`${f.origin}/api/chats/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: null }) });
@@ -103,13 +119,29 @@ test('API persists actual assistant usage returned for the completed turn', asyn
   await jsonRequest(`${f.origin}/api/chats/${chat.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'measure me' }) });
   const streamedUsage = { inputTokens: 10, outputTokens: 2 };
   f.runner.update(chat.id, { sessionId: 'session-1', text: 'measuring', tools: [], usage: streamedUsage });
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const streaming = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0].messages.at(-1);
+  const streaming = await waitFor(async () => {
+    const message = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0]?.messages.at(-1);
+    return message?.content === 'measuring'
+      && message.usage?.inputTokens === streamedUsage.inputTokens
+      && message.usage?.outputTokens === streamedUsage.outputTokens
+      ? message
+      : null;
+  }, 'streamed usage persistence');
   assert.deepEqual(streaming.usage, streamedUsage);
   const usage = { inputTokens: 12, outputTokens: 3, cacheReadInputTokens: 40, costUsd: 0.004 };
   f.runner.complete(chat.id, 'measured', usage);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const saved = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0].messages.at(-1);
+  const saved = await waitFor(async () => {
+    const current = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+    const message = current?.messages.at(-1);
+    return current?.status === 'idle'
+      && message?.content === 'measured'
+      && message.usage?.inputTokens === usage.inputTokens
+      && message.usage?.outputTokens === usage.outputTokens
+      && message.usage?.cacheReadInputTokens === usage.cacheReadInputTokens
+      && message.usage?.costUsd === usage.costUsd
+      ? message
+      : null;
+  }, 'final usage persistence');
   assert.deepEqual(saved.usage, usage);
 });
 
@@ -247,14 +279,19 @@ test('SSE sends initial and changed state, and disconnecting does not cancel Cla
   await jsonRequest(`${f.origin}/api/chats/${chat.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'continue after disconnect' }) });
   events.response.destroy();
   f.runner.complete(chat.id, 'still completed');
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const saved = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+  const saved = await waitFor(async () => {
+    const current = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+    return current?.messages.at(-1)?.content === 'still completed' && current.status === 'idle'
+      ? current
+      : null;
+  }, 'completed assistant state after SSE disconnect');
   assert.equal(saved.messages.at(-1).content, 'still completed');
   assert.equal(saved.status, 'idle');
 });
 
 test('stop during an imported session ownership recheck prevents a late process launch', async (t) => {
   let resumableCalls = 0;
+  let ownershipRecheckReturned = false;
   let releaseRecheck;
   const delayed = new Promise((resolve) => { releaseRecheck = resolve; });
   const native = { id: 'saved', cwd: process.cwd(), kind: 'saved', name: 'Saved', sessionId: 'race-session', startedAt: 1, action: 'resume' };
@@ -264,7 +301,10 @@ test('stop during an imported session ownership recheck prevents a late process 
     async rename() { return native; },
     async resumable() {
       resumableCalls += 1;
-      if (resumableCalls === 3) await delayed;
+      if (resumableCalls === 3) {
+        await delayed;
+        ownershipRecheckReturned = true;
+      }
       return native;
     },
   };
@@ -275,7 +315,14 @@ test('stop during an imported session ownership recheck prevents a late process 
   const stopped = await jsonRequest(`${f.origin}/api/chats/${imported.id}/stop`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   assert.equal(stopped.value.messages.at(-1).status, 'interrupted');
   releaseRecheck(native);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitFor(() => ownershipRecheckReturned, 'cancelled ownership recheck return');
+  const final = await waitFor(async () => {
+    const current = (await jsonRequest(`${f.origin}/api/state`)).value.chats[0];
+    return current?.status === 'idle' && current.messages.at(-1)?.status === 'interrupted'
+      ? current
+      : null;
+  }, 'interrupted chat finalization');
+  assert.equal(final.messages.at(-1).status, 'interrupted');
   assert.equal(f.runner.calls.length, 0);
 });
 

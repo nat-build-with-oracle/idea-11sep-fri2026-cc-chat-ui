@@ -16,6 +16,10 @@ A Codex-inspired chat UI for Claude Code on your Mac. Real sessions, repository 
 | --- | --- |
 | ![Repository sorting, rename, and hide controls](docs/images/tutorial-repository-tools.png) | ![Long conversation fully loaded](docs/images/tutorial-history-loaded.png) |
 
+| Share Oracle context with `@` | Alias + Session ID + CLI |
+| --- | --- |
+| ![Oracle mention picker](docs/images/tutorial-oracle-mention.png) | ![Active session display alias and copyable CLI](docs/images/tutorial-session-alias-cli.png) |
+
 **[Open the full visual walkthrough →](docs/tutorials/using-claude-code-chat-ui.md)**
 
 ## Quick start
@@ -35,8 +39,8 @@ Open **http://127.0.0.1:5173**. Keep the backend running.
 The Tauri app packages the same frontend and supervises the same Node backend on `127.0.0.1:4318`. Its native menu shows server ownership and status, opens the dashboard, restarts a backend it launched, reveals recent output, and quits cleanly.
 
 ```bash
-npm run tauri:build
-open "src-tauri/target/release/bundle/macos/ARRA Claude Code Server.app"
+just desktop-build
+just desktop-open
 ```
 
 [Desktop build, runtime, and security notes →](docs/desktop.md)

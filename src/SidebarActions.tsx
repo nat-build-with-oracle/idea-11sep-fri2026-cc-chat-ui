@@ -50,6 +50,6 @@ export function SidebarThread({ title, selected, running, locked, nested, native
     <button type="button" data-native-thread={nativeId} className={`chat-row min-w-0 flex-1 ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={onSelect} title={title}>
       <Icon name="file" size={16} /><span className="truncate">{title}</span>{running && <span className="activity-dot" />}{locked && <Icon name="lock" size={12} />}
     </button>
-    {onRename && <button type="button" className={`${actionClass} opacity-0 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 [@media(hover:none)]:opacity-100`} aria-label={`Rename ${title}`} title={renameDisabled ? 'Stop this session before renaming' : 'Rename conversation'} disabled={renameDisabled} onClick={onRename}><Icon name="new" size={14} /></button>}
+    {onRename && <button type="button" className={`${actionClass} opacity-0 group-hover/thread:opacity-100 group-focus-within/thread:opacity-100 [@media(hover:none)]:opacity-100`} aria-label={`Rename ${title}`} title={renameDisabled ? 'Rename unavailable while another change is saving' : 'Rename display name'} disabled={renameDisabled} onClick={onRename}><Icon name="new" size={14} /></button>}
   </div>
 }

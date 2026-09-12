@@ -150,7 +150,6 @@ async function createBoundAppChat(server, origin, { id, sessionId, messages }) {
 
 test('background transcript sync emits SSE, survives restart, and remains idempotent with usage intact', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-api-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   const legacyUsage = { inputTokens: 20, outputTokens: 5, costUsd: 0.01, scope: 'cliResult' };
   const nativeUsage = { inputTokens: 8, outputTokens: 3, cacheReadInputTokens: 12, scope: 'apiMessage' };
@@ -190,7 +189,10 @@ test('background transcript sync emits SSE, survives restart, and remains idempo
     nativeMessage('native-extra-reply', 'assistant', 'caught up', { usage: extraUsage }),
   ]);
   const second = await startServer({ dataDir, nativeSessions: native, syncIntervalMs: 20 });
-  t.after(() => closeServer(second.server));
+  t.after(async () => {
+    await closeServer(second.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const caughtUp = await waitFor(async () => {
     const chat = (await request(second.origin, '/api/state')).value.chats.find(item => item.id === chatId);
     return chat?.messages.length === 6 ? chat : null;
@@ -206,11 +208,13 @@ test('background transcript sync emits SSE, survives restart, and remains idempo
 
 test('sync errors preserve cached messages and a later snapshot recovers', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-error-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-error', 'token-1', [nativeMessage('source-user', 'user', 'cached')]);
   const f = await startServer({ dataDir, nativeSessions: native });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const chatId = await createBoundAppChat(f.server, f.origin, {
     id: 'error-recovery', sessionId: 'session-error',
     messages: [{ id: 'cached-user', role: 'user', content: 'cached', createdAt: '2026-09-11T00:00:00.000Z', status: 'complete' }],
@@ -235,12 +239,14 @@ test('sync errors preserve cached messages and a later snapshot recovers', async
 
 test('an in-flight sync cannot overwrite a running app update or resurrect a deleted chat', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-races-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-running', 'token-1', [nativeMessage('running-source', 'user', 'base')]);
   native.set('session-delete', 'token-1', [nativeMessage('delete-source', 'user', 'base')]);
   const f = await startServer({ dataDir, nativeSessions: native });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const runningId = await createBoundAppChat(f.server, f.origin, {
     id: 'running-race', sessionId: 'session-running',
     messages: [{ id: 'running-app', role: 'user', content: 'base', createdAt: '2026-09-11T00:00:00.000Z', status: 'complete' }],
@@ -281,13 +287,15 @@ test('an in-flight sync cannot overwrite a running app update or resurrect a del
 
 test('sending to an app-created bound session rechecks native ownership before runner launch', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-active-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-active', 'token-1', []);
   native.active = true;
   const runner = new FakeRunner();
   const f = await startServer({ dataDir, nativeSessions: native, runner });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const chatId = await createBoundAppChat(f.server, f.origin, { id: 'active-owner', sessionId: 'session-active', messages: [] });
   const response = await request(f.origin, `/api/chats/${chatId}/messages`, { method: 'POST', body: { content: 'do not launch' } });
   assert.equal(response.status, 409);
@@ -298,7 +306,6 @@ test('sending to an app-created bound session rechecks native ownership before r
 
 test('a failed post-accept ownership recheck stays app-only and does not poison a later send', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-launch-race-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-launch-race', 'token-1', []);
   let ownershipChecks = 0;
@@ -310,7 +317,10 @@ test('a failed post-accept ownership recheck stays app-only and does not poison 
   };
   const runner = new FakeRunner();
   const f = await startServer({ dataDir, nativeSessions: native, runner });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const chatId = await createBoundAppChat(f.server, f.origin, { id: 'launch-race', sessionId: 'session-launch-race', messages: [] });
 
   const accepted = await request(f.origin, `/api/chats/${chatId}/messages`, { method: 'POST', body: { content: 'failed attempt' } });
@@ -341,12 +351,14 @@ test('a failed post-accept ownership recheck stays app-only and does not poison 
 
 test('a forced transient snapshot conflict invalidates prior sync and blocks sends', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-conflict-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-conflict', 'token-1', []);
   const runner = new FakeRunner();
   const f = await startServer({ dataDir, nativeSessions: native, runner });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const chatId = await createBoundAppChat(f.server, f.origin, { id: 'conflict', sessionId: 'session-conflict', messages: [] });
   assert.equal(await f.server.app.transcriptSync.syncChat(chatId, { force: true }), true);
   assert.equal(f.server.app.store.snapshot().chats.find(chat => chat.id === chatId).sync.status, 'synced');
@@ -371,7 +383,6 @@ test('a forced transient snapshot conflict invalidates prior sync and blocks sen
 
 test('an accepted web turn clears stale sync and persists streamed and final native source UUIDs', async t => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-transcript-sync-source-ids-'));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
   const native = new FakeNativeSessions();
   native.set('session-source-ids', 'token-1', []);
   let finish;
@@ -384,7 +395,10 @@ test('an accepted web turn clears stale sync and persists streamed and final nat
     return new Promise(resolve => { finish = resolve; });
   };
   const f = await startServer({ dataDir, nativeSessions: native, runner });
-  t.after(() => closeServer(f.server));
+  t.after(async () => {
+    await closeServer(f.server);
+    await rm(dataDir, { recursive: true, force: true });
+  });
   const chatId = await createBoundAppChat(f.server, f.origin, { id: 'source-ids', sessionId: 'session-source-ids', messages: [] });
   await f.server.app.store.update(state => {
     state.chats.find(chat => chat.id === chatId).sync = { status: 'error', checkedAt: 'old', error: 'stale' };
