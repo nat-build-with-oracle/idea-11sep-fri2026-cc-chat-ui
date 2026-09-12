@@ -2,3 +2,6 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   X-Frame-Options: DENY
+
+/version.json
+  Cache-Control: no-store

@@ -28,7 +28,11 @@ Open **[the Cloudflare frontend](https://cc-chat-ui.laris.workers.dev/?host=http
 CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
 ```
 
-Select **Connect to this Mac** and allow browser local-network access if prompted. The default Mac backend stays loopback-only. For arbitrary website origins, an explicit unsafe development switch is documented—not enabled by default. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
+Select **Connect to backend** and allow browser local-network access if prompted. The default Mac backend stays loopback-only. For arbitrary website origins, an explicit unsafe development switch is documented—not enabled by default. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
+
+## Build version
+
+The bottom bar always shows the UI’s CalVer version and build time, even when the backend is unreachable or the sidebar is hidden. Click it for the full build ID, source revision, and build mode. Every build uses the Asia/Bangkok `vYY.M.D-alpha.HMM` convention; the timestamp includes milliseconds to distinguish builds from the same minute. This is frontend build metadata, not a package release or proof of a backend connection. Production builds also emit [`version.json`](https://cc-chat-ui.laris.workers.dev/version.json).
 
 ## What works
 

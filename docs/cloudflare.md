@@ -17,7 +17,7 @@ CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
 
 Keep that process running. For the Vite development frontend as well, use the same environment variable with `npm run dev`. Only run one backend against a data directory at a time.
 
-Select **Connect to this Mac** on the hosted page. Chromium may ask for permission to access your local network; allow it for this site. This permission belongs to your browser, not the app. A denied permission, stopped backend, or mismatched allowed origin prevents connection. Safari compatibility is not yet browser-verified; the local frontend remains available as a fallback.
+Select **Connect to backend** on the hosted page. Chromium may ask for permission to access your local network; allow it for this site. This permission belongs to your browser, not the app. A denied permission, stopped backend, or mismatched allowed origin prevents connection. Safari compatibility is not yet browser-verified; the local frontend remains available as a fallback.
 
 The backend binds only to `127.0.0.1:4318`. `?host=` selects the browser's own local backend—not the Cloudflare server's network. Bare `127.0.0.1:4318` and any explicit HTTP(S) backend origin are accepted, including LAN, VPN, and public hostnames. Other ports can target isolated local instances. Credentials, paths, query parameters, and tokens in the backend address are rejected. Selecting an address does not create a tunnel or make that backend reachable: use HTTPS for remote backends and configure that backend’s own CORS and authentication. The address remains in the URL through navigation, refresh, and preview links. Each new cross-origin backend requires an explicit Connect action; workspace state is not reused across backend origins. Hosted drafts, selections, and hidden repositories are scoped to the selected backend origin.
 
@@ -53,6 +53,12 @@ CC_CHAT_ALLOW_ANY_ORIGIN=1 npm start
 **Danger:** any website you visit may read conversations and instruct Claude to execute commands—even while the API binds only to loopback. This is especially risky with Full access. The backend prints a startup warning and the UI displays an unsafe-mode banner. Never use this setting with an unprotected remote endpoint. It does not bypass browser local-network permissions or mixed-content restrictions.
 
 To secure it again, stop that backend and restart without `CC_CHAT_ALLOW_ANY_ORIGIN`, setting `CC_CHAT_FRONTEND_ORIGIN` to the single frontend you trust. Keep loopback binding, use default Claude permissions where practical, and add HTTPS plus authentication and a restricted network before considering remote access. CORS alone is not authentication.
+
+## Identify the loaded build
+
+The bottom bar shows **UI vYY.M.D-alpha.HMM** and its build time, independent of backend connectivity. Click it for the exact build ID, revision, and production/development mode. CalVer uses Asia/Bangkok; the detailed timestamp is UTC. The values are captured when Vite builds or starts, not taken from your browser’s clock.
+
+`/version.json` reports the deployed artifact’s metadata without contacting the backend. Compare its build ID with the one in the page you already have open: a mismatch means the page is running an older build. The footer describes the **frontend**, not the installed Claude CLI or backend version. This does not fix or bypass a `Failed to fetch` error. No package version, Git tag, or release is created automatically.
 
 ## Browser compatibility
 
