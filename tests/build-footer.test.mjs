@@ -9,7 +9,7 @@ test('build label renders without a backend, browser storage, or a network reque
   const originalFetch = globalThis.fetch
   globalThis.fetch = () => { throw new Error('Build label must not request a backend') }
   t.after(() => { globalThis.fetch = originalFetch })
-  const server = await createServer({ server: { middlewareMode: true, watch: null }, appType: 'custom' })
+  const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
   t.after(() => server.close())
   const { default: BuildFooter } = await server.ssrLoadModule('/src/BuildFooter.tsx')
   const html = renderToStaticMarkup(createElement(BuildFooter))
@@ -17,6 +17,8 @@ test('build label renders without a backend, browser storage, or a network reque
   assert.match(html, /Build \d{2}:\d{2}:\d{2}\.\d{3} UTC/)
   assert.match(html, /Build ID/)
   assert.match(html, /Frontend only/)
+  assert.match(html, /<footer class="[^"]*\bjustify-end\b/)
+  assert.match(html, /class="build-details [^"]*\bright-3\b/)
   assert.doesNotMatch(html, /unbuilt/)
 })
 

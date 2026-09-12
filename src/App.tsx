@@ -1,10 +1,12 @@
 import { backendTarget, isLoopback, workspaceStorageKey, workspaceLink } from './backend-target'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { api, subscribe } from './api'
+import { api } from './api'
+import { startWorkspaceConnection } from './workspace-connection'
 import type { AppState, Chat, Health, Message, Model, NativeSession, PermissionMode, RepositoryInventory } from './types'
 import { Icon, ClaudeMark, type IconName } from './Icon'
 import Markdown from './Markdown'
 import Dialog from './Dialog'
+import ConnectionHelp from './ConnectionHelp'
 import Appearance from './Appearance'
 import Activity from './Activity'
 import { buildConversationItems } from './activity-model'
@@ -41,6 +43,12 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const [loaded, setLoaded] = useState(preview)
   const [connected, setConnected] = useState(preview)
+  const [connectionAttempt, setConnectionAttempt] = useState(0)
+  const [connectionIssue, setConnectionIssue] = useState('')
+  const [connectionHelpOpen, setConnectionHelpOpen] = useState(false)
+  const [checkingConnection, setCheckingConnection] = useState(false)
+  const connectionError = useRef('')
+  const connectionRecovery = useRef(0)
   const [projectId, setProjectId] = useState(preview ? 'mother-oracle' : route.view === 'new' ? route.projectId || '' : stored('project'))
   const [model, setModel] = useState<Model>('sonnet')
   const [permission, setPermission] = useState<PermissionMode>('bypassPermissions')
@@ -77,7 +85,6 @@ export default function App() {
   const composer = useRef<HTMLTextAreaElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const nearBottom = useRef(true)
-  const sseSeen = useRef(false)
   const chat = view === 'chat' ? state.chats.find(item => item.id === selectedId) ?? null : null
   const repositoryRows = useMemo(() => buildWorkspaceRepositories(state.projects, repositoryInventory.repositories, nativeSessions, state.chats), [state.projects, repositoryInventory.repositories, nativeSessions, state.chats])
   const matchingRepositories = repositoryRows.filter(repo => !hiddenRepositories.has(repo.path.replace(/\/+$/, '') || '/') && `${repo.name} ${repo.path}`.toLowerCase().includes(repositorySearch.toLowerCase()))
@@ -97,12 +104,21 @@ export default function App() {
 
   useEffect(() => {
     if (preview) return
-    let alive = true
-    api.state().then(data => { if (alive && !sseSeen.current) { setState(data); setLoaded(true) } }).catch(reason => { if (alive && !sseSeen.current) { setError(errorMessage(reason)); setLoaded(true) } })
-    api.health().then(data => { if (alive) setHealth(data) }).catch(() => {})
-    const close = subscribe(data => { if (alive) { sseSeen.current = true; setState(data); setLoaded(true) } }, setConnected)
-    return () => { alive = false; close() }
-  }, [])
+    return startWorkspaceConnection({
+      onState: data => { setState(data); setLoaded(true) },
+      onHealth: setHealth,
+      onConnection: setConnected,
+      onIssue: reason => { reportConnectionIssue(reason); setLoaded(true) },
+      onRecovered: () => {
+        connectionRecovery.current += 1
+        const previous = connectionError.current
+        connectionError.current = ''
+        setError(current => current === previous ? '' : current)
+        setConnectionIssue(''); setConnectionHelpOpen(false)
+        if (previous) { void refreshRepositories(); void refreshNative() }
+      },
+    })
+  }, [connectionAttempt])
   useEffect(() => {
     setError(''); setModal(null); setDetailsOpen(false); setSidebarOpen(false); nearBottom.current = true
     if (preview) return
@@ -141,7 +157,7 @@ export default function App() {
       finally { if (alive && requestId === navigation.current) setNativeLoading(false) }
     })()
     return () => { alive = false }
-  }, [route])
+  }, [route, connectionAttempt])
   useEffect(() => { document.title = `${currentTitle} — Claude Code` }, [currentTitle])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2600); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
@@ -162,6 +178,24 @@ export default function App() {
       if (existing && existing.updatedAt >= updated.updatedAt) return previous
       return { ...previous, chats: [updated, ...previous.chats.filter(item => item.id !== updated.id)] }
     })
+  }
+  function reportConnectionIssue(reason: unknown) {
+    const message = errorMessage(reason)
+    connectionError.current = message
+    setError(message); setConnectionIssue(message); setConnectionHelpOpen(true)
+  }
+  async function retryConnection() {
+    if (checkingConnection) return
+    setCheckingConnection(true)
+    const recovery = connectionRecovery.current
+    try {
+      // Start the read-only fetch directly from the click, before awaiting anything.
+      const result = await api.health()
+      if (!result.ok) throw new Error('The backend did not report a healthy connection.')
+      setHealth(result)
+      if (recovery === connectionRecovery.current) setConnectionAttempt(attempt => attempt + 1)
+    } catch (reason) { if (recovery === connectionRecovery.current) reportConnectionIssue(reason) }
+    finally { setCheckingConnection(false) }
   }
   function changeDraft(value: string) { setDraft(value); remember(`draft:${selectedId || `new:${projectId}`}`, value) }
   function selectChat(item: Chat, replace = false) {
@@ -370,7 +404,8 @@ export default function App() {
     </aside>
 
     <main className="main-pane"><header className="topbar"><button className="icon-button sidebar-toggle" aria-label="Toggle sidebar" onClick={() => { if (window.innerWidth < 760) setSidebarOpen(!sidebarOpen); else setSidebarHidden(!sidebarHidden) }}><Icon name="panel" /></button>{view === 'native' ? <IconButton icon="back" label="Back to Claude agents" onClick={showAgents} /> : <Icon name={view === 'agents' ? 'agents' : 'folder'} size={22} />}<h1 className="topbar-title">{currentTitle}</h1><div className="topbar-actions"><Appearance />{view !== 'agents' && <IconButton icon="info" label="Session details" onClick={() => setDetailsOpen(!detailsOpen)} active={detailsOpen} />}</div></header>
-      {error && !modal && <div className="error-banner" role="alert"><span>{error}</span><IconButton icon="close" label="Dismiss error" onClick={() => setError('')} /></div>}
+      {error && error !== connectionIssue && !modal && <div className="error-banner" role="alert"><span>{error}</span><IconButton icon="close" label="Dismiss error" onClick={() => setError('')} /></div>}
+      {!preview && loaded && (!connected || connectionIssue) && <div className="warning-banner flex flex-wrap items-center justify-between gap-x-4 gap-y-2" role="status"><span>{connectionIssue ? 'This browser could not reach the backend.' : 'Live updates are disconnected.'}</span><button type="button" className="subtle-button shrink-0 text-[13px]" onClick={() => setConnectionHelpOpen(true)}>Connection help</button></div>}
       {!preview && health?.allowAnyOrigin && <div className="warning-banner" role="alert">Unsafe development mode: every website origin can access this backend, read conversations, and run Claude commands. Remove CC_CHAT_ALLOW_ANY_ORIGIN to secure it.</div>}
       {!preview && loaded && health && !health.claudeAvailable && <div className="warning-banner">Claude Code wasn’t found. Install it, run <code>claude auth login</code>, then restart this app.</div>}
       <div className="main-body">
@@ -425,6 +460,7 @@ export default function App() {
       </div>
     </main>
 
+    {connectionHelpOpen && !modal && <ConnectionHelp frontendOrigin={window.location.origin} origin={backendTarget(window.location.href).origin} local={isLoopback(new URL(backendTarget(window.location.href).origin).hostname)} issue={connectionIssue || 'The live event stream is disconnected.'} checking={checkingConnection} onRetry={() => void retryConnection()} onClose={() => setConnectionHelpOpen(false)} />}
     {modal && <Dialog title={modal === 'project' ? 'Add a project' : modal === 'search' ? 'Find a conversation' : modal === 'rename' ? 'Rename conversation' : modal === 'remove' ? 'Remove from workspace?' : 'Your local workspace'} onClose={() => { if (!busy) { setModal(null); setError('') } }} wide={modal === 'search'}>
       {error && <p className="inline-error" role="alert">{error}</p>}
       {modal === 'project' && <form onSubmit={addProject}><p className="dialog-description">Claude will run in this folder and use its project instructions.</p><label className="field">Project name<input autoFocus value={projectName} onChange={event => setProjectName(event.target.value)} placeholder="Optional — uses the folder name" maxLength={120} /></label><label className="field">Folder path<input value={projectPath} onChange={event => setProjectPath(event.target.value)} placeholder="/Users/you/Projects/my-project" required autoComplete="off" /></label><p className="field-help">Use the full path to an existing folder on this Mac.</p><div className="dialog-footer"><button type="button" className="subtle-button" onClick={() => setModal(null)} disabled={busy}>Cancel</button><button className="primary-button" disabled={busy || preview}>{busy ? 'Adding…' : 'Add project'}</button></div></form>}

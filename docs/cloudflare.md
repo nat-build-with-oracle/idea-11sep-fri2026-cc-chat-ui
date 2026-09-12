@@ -56,7 +56,7 @@ To secure it again, stop that backend and restart without `CC_CHAT_ALLOW_ANY_ORI
 
 ## Identify the loaded build
 
-The bottom bar shows **UI vYY.M.D-alpha.HMM** and its build time, independent of backend connectivity. Click it for the exact build ID, revision, and production/development mode. CalVer uses Asia/Bangkok; the detailed timestamp is UTC. The values are captured when Vite builds or starts, not taken from your browser’s clock.
+The bottom-right bar shows **UI vYY.M.D-alpha.HMM** and its build time, independent of backend connectivity. Click it for the exact build ID, revision, and production/development mode. CalVer uses Asia/Bangkok; the detailed timestamp is UTC. The values are captured when Vite builds or starts, not taken from your browser’s clock.
 
 `/version.json` reports the deployed artifact’s metadata without contacting the backend. Compare its build ID with the one in the page you already have open: a mismatch means the page is running an older build. The footer describes the **frontend**, not the installed Claude CLI or backend version. This does not fix or bypass a `Failed to fetch` error. No package version, Git tag, or release is created automatically.
 
@@ -65,6 +65,20 @@ The bottom bar shows **UI vYY.M.D-alpha.HMM** and its build time, independent of
 The client uses standard Fetch options and does not force the evolving `targetAddressSpace` enum; old PNA and new LNA browsers use incompatible values. Literal loopback URLs do not require that experimental option. Network errors include the browser’s reported reason rather than replacing it entirely with generic guidance.
 
 If Drizzle Studio works but this origin does not, its permissions are not automatically shared with this frontend. Drizzle documents a trusted-local-TLS workaround for Safari/Brave using `mkcert`; this app has not installed a CA or silently changed your certificate trust. See [Drizzle’s documented browser limitations](https://orm.drizzle.team/docs/drizzle-kit-studio) and [Chromium’s Local Network Access guidance](https://developer.chrome.com/blog/local-network-access). Check the exact browser network error before changing CORS or TLS.
+
+## Chrome works, Comet reports `ERR_BLOCKED_BY_CLIENT`
+
+Chromium defines this error as the client choosing to block the request, not a response from this API. It does **not** identify a particular extension or prove that Local Network Access permission was denied. [Chromium network errors](https://chromium.googlesource.com/chromium/src/+/main/net/base/net_error_list.h)
+
+For this site, try a narrow diagnostic change:
+
+1. In Comet, open **Settings → Privacy → Blocking** and add `https://cc-chat-ui.laris.workers.dev` to **Adblock exceptions**. Keep global blocking enabled. Reload and retry. Remove the exception if it makes no difference. [Comet Adblock](https://www.perplexity.ai/help-center/comet/en/articles/11734702-adblock)
+2. If still blocked, use **Settings → Extensions** to test privacy/content-blocking extensions one at a time; restore extensions that are not responsible. [Comet extensions](https://www.perplexity.ai/help-center/comet/en/articles/11734716-extensions)
+3. Check this site’s permissions in Comet, separately from Chrome. If a local-network/device-access setting is shown, allow only this trusted site. Managed browsers may need an administrator to review local-network policies. [Comet site permissions](https://www.perplexity.ai/help-center/comet/en/articles/11629598-manage-site-permissions), [Comet enterprise policies](https://www.perplexity.ai/help-center/en/articles/13529668-comet-policies-and-controls)
+
+The app opens **Connection help** when the initial workspace request fails, with the browser permission explanation, Comet instructions, a same-origin **Open local app** fallback for loopback backends, and **Retry connection**. Retry performs a read-only health check and restarts the REST/SSE connection; it never resends a prompt or starts a Claude run. A recovered connection clears the stale connection error and refreshes failed inventories. Dismissed help stays available in the disconnected banner instead of reopening on every SSE retry.
+
+The popup is our help UI, not a browser permission dialog. JavaScript cannot grant that permission, bypass Comet’s filtering, or read the DevTools-only error code from a generic `Failed to fetch`. No browser security settings or backend origin guards are changed automatically. Chrome connectivity has been confirmed by the user; the specific Comet blocker still needs the above per-site test.
 
 ## Verification
 

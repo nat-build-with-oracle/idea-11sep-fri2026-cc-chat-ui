@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { backendTarget, DEFAULT_BACKEND } from './backend-target'
+import { backendTarget, DEFAULT_BACKEND, isLoopback } from './backend-target'
 import { ClaudeMark } from './Icon'
 
 export default function BackendConnection({ children }: { children: ReactNode }) {
@@ -38,6 +38,7 @@ export default function BackendConnection({ children }: { children: ReactNode })
         {error && <p className="panel-warning" role="alert">{error}</p>}
         <button className="primary-button" type="submit">Connect to backend</button>
       </form>
+      {target && isLoopback(new URL(target.origin).hostname) && <p className="field-help">Your browser may ask to access apps and services on your device. Choose Allow only if you trust this interface and the backend you selected. Each browser stores its own site permissions.</p>}
       <details><summary>Start the backend</summary><p>In the app repository, run:</p><pre><code>{`CC_CHAT_FRONTEND_ORIGIN=${JSON.stringify(window.location.origin)} npm start`}</code></pre></details>
       <p className="field-help">Localhost points to this device. For another machine, use its reachable HTTPS address. Your browser may require local-network permission or block insecure HTTP connections.</p>
       <p className="field-help">Only connect to backends you trust. Protect remote backends with HTTPS and authentication; a shared or public backend can expose conversations and execute commands. This app does not add a tunnel or authentication to your backend.</p>
