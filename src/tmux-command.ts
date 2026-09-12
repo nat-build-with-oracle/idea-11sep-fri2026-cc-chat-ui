@@ -25,9 +25,9 @@ export function tmuxSessionName(sessionId: string, cwd?: string, title?: string)
   return `${repository}-${label}`.slice(0, MAX_TMUX_NAME_LENGTH).replace(/-+$/g, '')
 }
 
-export function tmuxResumeCommand(sessionId: string, cwd?: string, title?: string) {
+export function tmuxResumeCommand(sessionId: string, cwd?: string, title?: string, dangerous = false) {
   const name = tmuxSessionName(sessionId, cwd, title)
-  const claude = `claude --resume ${shellQuote(sessionId)}`
+  const claude = `claude --resume ${shellQuote(sessionId)}${dangerous ? ' --dangerously-skip-permissions' : ''}`
   const directory = cwd ? ` -c ${shellQuote(cwd)}` : ''
   return `tmux new-session -d -s ${shellQuote(name)}${directory} ${shellQuote(claude)} &&\nmaw a ${shellQuote(name)}`
 }

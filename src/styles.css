@@ -548,6 +548,9 @@ body { font-size: var(--ui-size); }
 .session-command-card strong { min-width: 0; font-size: 11px; overflow-wrap: anywhere; font-weight: 600; }
 .session-command-card pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; }
 .session-command-card code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.command-danger-warning { display: block; margin-top: 5px; color: var(--color-warning); }
+.session-command-card.dangerous { border-color: var(--color-warning); }
+.session-command-card.dangerous strong { color: var(--color-warning); }
 .topbar:has(.session-command-details[open]) { align-items: flex-start; }
 @media (max-width: 759px) { .toast { white-space: normal; overflow-wrap: anywhere; } }
 @media (max-width: 759px) {

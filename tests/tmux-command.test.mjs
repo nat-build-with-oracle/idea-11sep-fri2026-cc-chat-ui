@@ -78,3 +78,12 @@ test('tmux name collisions fail closed and do not attach maw to an existing sess
   const calls = await runScript(tmuxResumeCommand('session-id', '/repo', 'Task'), mocks, { TMUX_EXIT: '1' })
   assert.deepEqual(calls.map(call => call.command), ['tmux'])
 })
+
+test('full-access tmux places permission bypass inside the quoted Claude command only', async t => {
+  const mocks = await mockCommands(t)
+  const script = tmuxResumeCommand('session-id', '/work/neo-oracle', 'Memory', true)
+  const calls = await runScript(script, mocks)
+  assert.equal(calls[0].args.at(-1), "claude --resume 'session-id' --dangerously-skip-permissions")
+  assert.equal((script.match(/--dangerously-skip-permissions/g) || []).length, 1)
+  assert.doesNotMatch(tmuxResumeCommand('session-id', '/work/neo-oracle', 'Memory'), /dangerously/)
+})

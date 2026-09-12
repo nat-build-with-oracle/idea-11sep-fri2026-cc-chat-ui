@@ -48,7 +48,7 @@ test('the adjacent tmux button copies a named session launcher without replacing
   const html = renderToStaticMarkup(tree)
   assert.match(html, /Copy tmux/)
   assert.match(html, /Copy tmux command for neo-oracle-arra-memory-one-click/)
-  assert.equal((html.match(/<button/g) || []).length, 6)
+  assert.equal((html.match(/<button/g) || []).length, 9)
   tree.props.children[1].props.onClick()
   assert.equal(copied[1], 'tmux')
   assert.match(copied[0], /tmux new-session/)
@@ -77,18 +77,40 @@ test('collapsed disclosure contains complete selectable commands and each copy m
   const disclosure = tree.props.children.find(child => child?.type === 'details')
   assert.equal(disclosure.props.open, undefined)
   const cards = disclosure.props.children[1].props.children[1]
-  assert.equal(cards.length, 3)
+  assert.equal(cards.length, 6)
   for (const card of cards) {
     const displayed = card.props.children[1].props.children.props.children
     card.props.children[0].props.children[1].props.onClick()
     assert.equal(copied.at(-1)[0], displayed)
   }
-  assert.deepEqual(copied.map(([, kind]) => kind), ['resume', 'tmux', 'oneshot'])
+  assert.deepEqual(copied.map(([, kind]) => kind), ['resume', 'tmux', 'oneshot', 'resume', 'tmux', 'oneshot'])
   assert.equal(copied[0][0], resumeCommand('exact-id', '/repos/neo-oracle'))
   assert.equal(copied[2][0], oneShotCommand('exact-id', '/repos/neo-oracle'))
   const html = renderToStaticMarkup(tree)
   assert.match(html, /Show all commands/)
   assert.match(html, /Full session commands/)
   assert.match(html, /Copy only—nothing runs here/)
-  assert.equal((html.match(/<pre><code>/g) || []).length, 3)
+  assert.equal((html.match(/<pre><code>/g) || []).length, 6)
+})
+
+test('full-access variants opt in to permission bypass without changing standard commands', async t => {
+  const { default: SessionCommand, resumeCommand, oneShotCommand } = await loadCommand(t)
+  const id = "session'quoted"
+  const cwd = "/Users/O'Brien/neo-oracle"
+  assert.equal(resumeCommand(id, cwd, true), `${resumeCommand(id, cwd)} --dangerously-skip-permissions`)
+  assert.doesNotMatch(resumeCommand(id, cwd), /dangerously/)
+  assert.match(oneShotCommand(id, cwd, true), /--dangerously-skip-permissions -p /)
+  assert.match(oneShotCommand(id, cwd, true), /--tools ''$/)
+  const copied = []
+  const tree = SessionCommand({ sessionId: id, cwd, title: 'Memory', onCopy: (...args) => copied.push(args) })
+  const cards = tree.props.children.find(child => child?.type === 'details').props.children[1].props.children[1]
+  const dangerous = cards.filter(card => card.props.className.includes('dangerous'))
+  assert.equal(dangerous.length, 3)
+  for (const card of dangerous) {
+    card.props.children[0].props.children[1].props.onClick()
+    assert.equal(copied.at(-1)[0], card.props.children[1].props.children.props.children)
+    assert.equal((copied.at(-1)[0].match(/--dangerously-skip-permissions/g) || []).length, 1)
+  }
+  assert.match(renderToStaticMarkup(tree), /Full access bypasses permission checks/)
+  assert.match(renderToStaticMarkup(tree), /Full access · One-shot sync test \(tools off\)/)
 })

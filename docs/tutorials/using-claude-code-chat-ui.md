@@ -104,6 +104,7 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 3. Open a native session → **Session details** → **Set display alias** → **Save name**. Refresh: the alias remains, while the native name, ID, and history stay unchanged. This works even with its terminal open.
 4. Click the **Session** ID or the CLI command underneath to copy it. The command includes the known project folder. Copying does not run it; finish any existing native writer before resuming that session.
 5. Click **Show all commands** to expand every full command and its Copy button. Use **Copy tmux** for a named terminal, or **Copy -p test** for a one-shot sync check. Running the test adds a turn and uses Claude quota; the buttons themselves run nothing.
+   For permission bypass, scroll to the amber **Full access** command cards. They skip permission checks; standard copies remain unchanged. The one-shot test still keeps tools off.
 6. Type **/** for `/rename` and `/list-agents` suggestions. **Enter/Tab** inserts a selection without sending; add arguments and send when ready.
 
 ![Expanded copyable commands](../images/tutorial-full-commands.png)

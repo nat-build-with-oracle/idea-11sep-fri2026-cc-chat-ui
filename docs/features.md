@@ -109,3 +109,9 @@ Selected references show removable context chips. A repository includes its full
 The conversation header shows its **Claude Session ID**. Click it to copy the full value for `claude --resume`; this is separate from the browser's saved-chat route ID. The full **CLI** command underneath copies the resume command with the known project folder; copying never runs it. Sending with Enter returns focus to the composer after the request completes, ready for the next draft.
 
 **Show all commands** expands the complete, selectable resume, tmux, and one-shot commands, each with its own Copy button. Collapse it with **Hide commands**. Beside the CLI line, **Copy tmux** creates a command for a named tmux session (`repo-chat-title`) and `maw a` attachment. It requires both tools; an existing name stops the command instead of attaching to a different session. **Copy -p test** copies a one-shot prompt using the same Claude session ID and folder, with tools disabled. Running it uses Claude quota and adds a test turn to that session. Finish any existing Claude writer first. These buttons only copy text; they never launch a terminal or run a prompt.
+
+### Full-access terminal variants
+
+Inside **Show all commands**, the amber **Full access** cards add `--dangerously-skip-permissions` for resume, tmux, and one-shot commands. This bypasses permission checks: Claude may run commands and change files without asking. Use trusted projects and finish the existing writer first. Standard cards and quick-copy buttons are unchanged. The one-shot sync-test variant deliberately retains `--tools ''` and is labeled **tools off**; it is still a no-tool test, not a general-purpose full-access prompt. Copying never executes a command.
+
+![Full-access command variants, using an isolated fixture](images/tutorial-full-access-commands.png)
