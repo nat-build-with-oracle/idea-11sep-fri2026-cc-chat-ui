@@ -1,21 +1,24 @@
-import { backendApiUrl, backendTarget } from './backend-target'
+import { backendApiUrl, backendTarget } from './backend-target.ts'
 import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const target = backendTarget(window.location.href)
-  const options: RequestInit & { targetAddressSpace?: 'loopback' } = {
+  const options: RequestInit = {
     credentials: 'omit',
     redirect: 'error',
-    ...(target.base ? { targetAddressSpace: 'loopback' as const } : {}),
     method,
     headers: method === 'GET' ? undefined : { 'Content-Type': 'application/json' },
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
   }
   let response: Response
   try { response = await fetch(backendApiUrl(window.location.href, path), options) }
-  catch { throw new Error(`Cannot reach the local backend at ${target.origin}. Keep it running, allow this site's local-network access, and check CC_CHAT_FRONTEND_ORIGIN.`) }
+  catch (reason) {
+    const detail = reason instanceof Error ? reason.message.slice(0, 240) : 'Network request failed'
+    throw new Error(`Cannot reach the backend at ${target.origin}. Browser: ${detail}. Check backend CORS, HTTPS, and this site's local-network permission.`)
+  }
   const data = await response.json().catch(() => null)
   if (!response.ok) throw new Error(data?.error || `Request failed (${response.status}). Please try again.`)
+  if (response.status !== 204 && data === null) throw new Error(`The backend at ${target.origin} did not return JSON. Choose a compatible Claude workspace API, not the static frontend address.`)
   return data as T
 }
 

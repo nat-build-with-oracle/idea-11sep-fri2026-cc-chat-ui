@@ -22,13 +22,13 @@ Then open **http://127.0.0.1:4318**. Keep the terminal running. This is a local 
 
 ## Hosted frontend + local backend
 
-Open **[the Cloudflare frontend](https://cc-chat-ui.laris.workers.dev/?host=http://127.0.0.1:4318)** on your Mac. The browser connects directly to your local API through `?host=`; Cloudflare serves only static UI assets. Start the backend with:
+Open **[the Cloudflare frontend](https://cc-chat-ui.laris.workers.dev/?host=http://127.0.0.1:4318)** on your Mac. The browser connects directly to your selected HTTP(S) backend through `?host=` (local, LAN/VPN, or public address); Cloudflare serves only static UI assets. Start the backend with:
 
 ```sh
 CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
 ```
 
-Select **Connect to this Mac** and allow browser local-network access if prompted. Nothing exposes your backend publicly. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
+Select **Connect to this Mac** and allow browser local-network access if prompted. The default Mac backend stays loopback-only. For arbitrary website origins, an explicit unsafe development switch is documented—not enabled by default. See [deployment, security boundaries, and troubleshooting](docs/cloudflare.md).
 
 ## What works
 

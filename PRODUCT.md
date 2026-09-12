@@ -28,7 +28,7 @@ Claude Code is installed locally. New conversations have distinct sessions; foll
 - Stream Claude output and tool activity; stop an active run.
 - Support headless `-p`, explicit session IDs, `--resume`, and the requested `--dangerously-skip-permissions` mode.
 - Full access bypasses Claude permission prompts and must be visibly distinguished from default permissions.
-- Bind the backend to loopback only. A public Cloudflare Static Assets frontend may connect directly from the same Mac through a validated `?host=` loopback origin, with explicit hosted-origin trust and browser local-network permission. Public backend exposure, remote access, and multi-user authentication remain out of scope.
+- Bind the backend to loopback only. A public Cloudflare Static Assets frontend may connect directly from the same Mac through a validated `?host=` HTTP(S) origin (defaulting to loopback), with explicit hosted-origin trust and browser local-network permission. The selector may also target a separately secured remote backend. Public exposure of this Mac backend and multi-user authentication remain out of scope. An explicit unsafe development-only allow-any-origin override is documented with a runtime warning; protected exact-origin mode remains the default.
 - No synthetic conversation history presented as real user data.
 
 ## Brand Commitments

@@ -22,7 +22,7 @@ export interface Chat {
   nativeImported?: boolean; historyUnavailable?: boolean; historyTruncated?: boolean; historyNextOffset?: number | null;
 }
 export interface AppState { projects: Project[]; chats: Chat[] }
-export interface Health { ok: boolean; claudeAvailable: boolean; claudeVersion: string | null; cwd: string }
+export interface Health { ok: boolean; allowAnyOrigin?: boolean; claudeAvailable: boolean; claudeVersion: string | null; cwd: string }
 
 export type HistoryBlock = { type: 'text'; text: string } | { type: 'tool'; id: string; name: string; input: unknown; status: 'running' | 'complete' } | { type: 'toolResult'; toolUseId: string; content: unknown; isError?: boolean }
 export interface NativeSession {

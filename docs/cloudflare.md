@@ -19,9 +19,9 @@ Keep that process running. For the Vite development frontend as well, use the sa
 
 Select **Connect to this Mac** on the hosted page. Chromium may ask for permission to access your local network; allow it for this site. This permission belongs to your browser, not the app. A denied permission, stopped backend, or mismatched allowed origin prevents connection. Safari compatibility is not yet browser-verified; the local frontend remains available as a fallback.
 
-The backend binds only to `127.0.0.1:4318`. `?host=` selects the browser's own local backend—not the Cloudflare server's network. Bare `127.0.0.1:4318` and an explicit HTTP(S) loopback origin are accepted. Other ports can target isolated local instances. Remote/LAN hostnames, credentials, paths, and tokens are rejected. The address remains in the URL through navigation, refresh, and preview links. Hosted drafts, selections, and hidden repositories are scoped to the selected backend origin.
+The backend binds only to `127.0.0.1:4318`. `?host=` selects the browser's own local backend—not the Cloudflare server's network. Bare `127.0.0.1:4318` and any explicit HTTP(S) backend origin are accepted, including LAN, VPN, and public hostnames. Other ports can target isolated local instances. Credentials, paths, query parameters, and tokens in the backend address are rejected. Selecting an address does not create a tunnel or make that backend reachable: use HTTPS for remote backends and configure that backend’s own CORS and authentication. The address remains in the URL through navigation, refresh, and preview links. Each new cross-origin backend requires an explicit Connect action; workspace state is not reused across backend origins. Hosted drafts, selections, and hidden repositories are scoped to the selected backend origin.
 
-Opening this link on a phone points to the phone's loopback, not your Mac. This setup is intentionally **not** remote access or a public backend tunnel.
+The default link opened on a phone points to the phone’s loopback, not your Mac. The bundled Node server still binds to loopback and validates its Host header. Remote addresses are useful for separately secured backends; choosing one does **not** expose this Mac server or add remote access.
 
 ## Deploy your own frontend
 
@@ -36,11 +36,29 @@ Only `dist/` is uploaded. There is no Worker API proxy, SSR, database, Claude SD
 ## Trust boundary
 
 - Your browser downloads the UI from Cloudflare and talks directly to the local API for REST and SSE streaming.
-- The backend still validates a loopback Host, and only the exact opted-in HTTPS frontend origin gets CORS access. Unknown origins cannot read or mutate the API. Credentials and wildcard CORS are not enabled.
+- By default, the backend validates a loopback Host, and only the exact opted-in HTTPS frontend origin gets cross-origin access. Unknown origins cannot read or mutate the API. Credentialed CORS is not enabled. The explicit unsafe development override below relaxes only origin validation, not the network listener or Host gate.
 - `CC_CHAT_FRONTEND_ORIGIN` is a deliberate trust decision: JavaScript served by that origin can instruct Claude to execute commands locally, including Full access. Use only a frontend/deployment account you trust and control.
 - No credentials or bearer tokens belong in the `host` query parameter. Native Claude credentials remain in Claude Code's local storage.
 - CORS is a browser boundary, not authentication against software already running on the Mac. Do not expose this API through a public reverse proxy or tunnel.
 - Legacy Private Network Access preflight headers are supported for approved origins, but modern Chromium uses a separate [Local Network Access permission](https://developer.chrome.com/blog/local-network-access).
+
+## Allow every website origin — unsafe development only
+
+If you deliberately need to test from arbitrary frontend origins:
+
+```sh
+CC_CHAT_ALLOW_ANY_ORIGIN=1 npm start
+```
+
+**Danger:** any website you visit may read conversations and instruct Claude to execute commands—even while the API binds only to loopback. This is especially risky with Full access. The backend prints a startup warning and the UI displays an unsafe-mode banner. Never use this setting with an unprotected remote endpoint. It does not bypass browser local-network permissions or mixed-content restrictions.
+
+To secure it again, stop that backend and restart without `CC_CHAT_ALLOW_ANY_ORIGIN`, setting `CC_CHAT_FRONTEND_ORIGIN` to the single frontend you trust. Keep loopback binding, use default Claude permissions where practical, and add HTTPS plus authentication and a restricted network before considering remote access. CORS alone is not authentication.
+
+## Browser compatibility
+
+The client uses standard Fetch options and does not force the evolving `targetAddressSpace` enum; old PNA and new LNA browsers use incompatible values. Literal loopback URLs do not require that experimental option. Network errors include the browser’s reported reason rather than replacing it entirely with generic guidance.
+
+If Drizzle Studio works but this origin does not, its permissions are not automatically shared with this frontend. Drizzle documents a trusted-local-TLS workaround for Safari/Brave using `mkcert`; this app has not installed a CA or silently changed your certificate trust. See [Drizzle’s documented browser limitations](https://orm.drizzle.team/docs/drizzle-kit-studio) and [Chromium’s Local Network Access guidance](https://developer.chrome.com/blog/local-network-access). Check the exact browser network error before changing CORS or TLS.
 
 ## Verification
 

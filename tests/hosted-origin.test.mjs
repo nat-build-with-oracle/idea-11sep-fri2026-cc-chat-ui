@@ -201,3 +201,95 @@ test('CC_CHAT_FRONTEND_ORIGIN enables the same exact hosted origin policy', asyn
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('access-control-allow-origin'), FRONTEND_ORIGIN);
 });
+
+test('allow-any-origin mode is explicit, warned, observable, and still bounded by Origin, Host, and preflight checks', async (t) => {
+  const arbitraryOrigin = 'https://preview-untrusted.example';
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...parts) => warnings.push(parts.join(' '));
+  t.after(() => { console.warn = originalWarn; });
+  const server = await createServer({
+    dataDir: await mkdtemp(path.join(os.tmpdir(), 'cc-chat-any-origin-')),
+    cwd: process.cwd(),
+    runner: new FakeRunner(),
+    allowAnyOrigin: true,
+  });
+  console.warn = originalWarn;
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /websites can read conversations and execute Claude commands/i);
+  assert.match(warnings[0], /loopback/i);
+
+  const health = await requestJson(`${origin}/api/health`, { headers: { origin: arbitraryOrigin } });
+  assert.equal(health.response.status, 200);
+  assert.equal(health.response.headers.get('access-control-allow-origin'), arbitraryOrigin);
+  assert.equal(health.value.allowAnyOrigin, true);
+
+  const created = await requestJson(`${origin}/api/chats`, {
+    method: 'POST',
+    headers: corsHeaders(arbitraryOrigin),
+    body: '{}',
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.response.headers.get('access-control-allow-origin'), arbitraryOrigin);
+  const missing = await requestJson(`${origin}/api/chats/missing`, { method: 'DELETE', headers: { origin: arbitraryOrigin } });
+  assert.equal(missing.response.status, 404);
+  assert.equal(missing.response.headers.get('access-control-allow-origin'), arbitraryOrigin);
+
+  const preflight = await fetch(`${origin}/api/chats`, {
+    method: 'OPTIONS',
+    headers: {
+      origin: arbitraryOrigin,
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'Content-Type',
+      'access-control-request-private-network': 'true',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), arbitraryOrigin);
+  assert.equal(preflight.headers.get('access-control-allow-private-network'), 'true');
+
+  const controller = new AbortController();
+  const events = await fetch(`${origin}/api/events`, { headers: { origin: arbitraryOrigin }, signal: controller.signal });
+  assert.equal(events.status, 200);
+  assert.equal(events.headers.get('access-control-allow-origin'), arbitraryOrigin);
+  const firstEvent = await events.body.getReader().read();
+  assert.match(Buffer.from(firstEvent.value).toString('utf8'), /event: state/);
+  controller.abort();
+
+  const nullOrigin = await requestJson(`${origin}/api/state`, { headers: { origin: 'null' } });
+  assert.equal(nullOrigin.response.status, 403);
+  assert.equal(nullOrigin.response.headers.get('access-control-allow-origin'), null);
+  const badHost = await rawRequest(origin, { headers: { host: 'evil.example', origin: arbitraryOrigin } });
+  assert.equal(badHost.status, 403);
+  assert.equal(badHost.headers['access-control-allow-origin'], undefined);
+});
+
+test('CC_CHAT_ALLOW_ANY_ORIGIN enables permissive origin reflection only for the exact value 1', async (t) => {
+  const previous = process.env.CC_CHAT_ALLOW_ANY_ORIGIN;
+  t.after(() => {
+    if (previous === undefined) delete process.env.CC_CHAT_ALLOW_ANY_ORIGIN;
+    else process.env.CC_CHAT_ALLOW_ANY_ORIGIN = previous;
+  });
+  process.env.CC_CHAT_ALLOW_ANY_ORIGIN = 'true';
+  const deniedServer = await createServer({ dataDir: await mkdtemp(path.join(os.tmpdir(), 'cc-chat-any-origin-off-')), runner: new FakeRunner() });
+  t.after(() => new Promise((resolve) => deniedServer.close(resolve)));
+  await new Promise((resolve) => deniedServer.listen(0, '127.0.0.1', resolve));
+  const deniedBase = `http://127.0.0.1:${deniedServer.address().port}`;
+  assert.equal((await fetch(`${deniedBase}/api/state`, { headers: { origin: 'https://arbitrary.example' } })).status, 403);
+
+  process.env.CC_CHAT_ALLOW_ANY_ORIGIN = '1';
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...parts) => warnings.push(parts.join(' '));
+  const allowedServer = await createServer({ dataDir: await mkdtemp(path.join(os.tmpdir(), 'cc-chat-any-origin-on-')), runner: new FakeRunner() });
+  console.warn = originalWarn;
+  t.after(() => new Promise((resolve) => allowedServer.close(resolve)));
+  await new Promise((resolve) => allowedServer.listen(0, '127.0.0.1', resolve));
+  const allowedBase = `http://127.0.0.1:${allowedServer.address().port}`;
+  assert.equal((await fetch(`${allowedBase}/api/state`, { headers: { origin: 'http://arbitrary.example' } })).status, 200);
+  assert.equal(warnings.length, 1);
+});

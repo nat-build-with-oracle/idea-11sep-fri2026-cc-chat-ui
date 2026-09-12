@@ -46,7 +46,7 @@ function configuredFrontendOrigin(value) {
   }
 }
 
-function approvedOrigin(request, devOrigin, frontendOrigin) {
+function approvedOrigin(request, devOrigin, frontendOrigin, allowAnyOrigin) {
   if (!request.headers.origin) return { allowed: true, corsOrigin: '' };
   try {
     const origin = new URL(request.headers.origin);
@@ -55,7 +55,7 @@ function approvedOrigin(request, devOrigin, frontendOrigin) {
     }
     const normalized = origin.origin.toLowerCase();
     const sameOrigin = origin.host.toLowerCase() === String(request.headers.host).toLowerCase();
-    const allowed = sameOrigin || normalized === devOrigin || origin.origin === frontendOrigin;
+    const allowed = allowAnyOrigin || sameOrigin || normalized === devOrigin || origin.origin === frontendOrigin;
     return { allowed, corsOrigin: allowed ? origin.origin : '' };
   } catch {
     return { allowed: false, corsOrigin: '' };
@@ -182,6 +182,12 @@ async function serveSpa(request, response, distDir) {
 
 export async function createApp(options = {}) {
   const frontendOrigin = configuredFrontendOrigin(options.frontendOrigin ?? process.env.CC_CHAT_FRONTEND_ORIGIN ?? '');
+  const allowAnyOrigin = options.allowAnyOrigin === undefined
+    ? process.env.CC_CHAT_ALLOW_ANY_ORIGIN === '1'
+    : options.allowAnyOrigin === true;
+  if (allowAnyOrigin) {
+    console.warn('WARNING: allow-any-origin mode is enabled. Websites can read conversations and execute Claude commands, even while this server is bound to loopback.');
+  }
   const cwd = path.resolve(options.cwd || process.cwd());
   const store = options.store || await new JsonStore({ dataDir: options.dataDir, cwd }).init();
   const runner = options.runner || new ClaudeRunner(options.runnerOptions);
@@ -294,7 +300,7 @@ export async function createApp(options = {}) {
   const handler = async (request, response) => {
     try {
       if (!validHost(request)) return json(response, 403, { error: 'Forbidden origin' });
-      const origin = approvedOrigin(request, devOrigin, frontendOrigin);
+      const origin = approvedOrigin(request, devOrigin, frontendOrigin, allowAnyOrigin);
       if (!origin.allowed) return json(response, 403, { error: 'Forbidden origin' });
       const url = new URL(request.url, `http://${request.headers.host}`);
       if (!url.pathname.startsWith('/api/')) return serveSpa(request, response, distDir);
@@ -306,7 +312,7 @@ export async function createApp(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/state') return json(response, 200, store.snapshot());
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();
-        return json(response, 200, { ok: true, ...health, cwd });
+        return json(response, 200, { ok: true, ...health, cwd, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
       }
       if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {

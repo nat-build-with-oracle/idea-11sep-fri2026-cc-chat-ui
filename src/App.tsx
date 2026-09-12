@@ -1,4 +1,4 @@
-import { backendTarget, workspaceStorageKey, workspaceLink } from './backend-target'
+import { backendTarget, isLoopback, workspaceStorageKey, workspaceLink } from './backend-target'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, subscribe } from './api'
 import type { AppState, Chat, Health, Message, Model, NativeSession, PermissionMode, RepositoryInventory } from './types'
@@ -366,11 +366,12 @@ export default function App() {
         </section>
         <section className="recents"><div className="section-label"><span>Picked up here</span></div>{state.chats.map(item => <button key={item.id} className={`chat-row ${chat?.id === item.id && !preview ? 'selected' : ''}`} onClick={() => selectChat(item)} title={item.title}><Icon name="file" size={17} /><span className="truncate">{item.title}</span>{item.status === 'running' && <span className="activity-dot" />}</button>)}{loaded && !state.chats.length && <p className="sidebar-empty">A fresh start. Your next chat goes here.<button onClick={showAgents}>Find your other chats <Icon name="chevron" size={12} /></button></p>}</section>
       </nav>
-      <footer className="sidebar-footer"><div><span className={`status-dot ${connected ? '' : 'offline'}`} /><span title={backendTarget(window.location.href).origin}>{connected ? 'Local on this Mac' : 'Reconnecting…'}</span><IconButton icon="settings" label="Workspace settings" onClick={() => { setError(''); setModal('settings') }} /></div>{preview ? <a href={workspaceLink(window.location.href, false)} className="preview-caption">Design preview · example conversations</a> : <span className="local-caption">Your conversations stay on your Mac</span>}</footer>
+      <footer className="sidebar-footer"><div><span className={`status-dot ${connected ? '' : 'offline'}`} /><span title={backendTarget(window.location.href).origin}>{connected ? isLoopback(new URL(backendTarget(window.location.href).origin).hostname) ? 'Local on this Mac' : 'Backend connected' : 'Reconnecting…'}</span><IconButton icon="settings" label="Workspace settings" onClick={() => { setError(''); setModal('settings') }} /></div>{preview ? <a href={workspaceLink(window.location.href, false)} className="preview-caption">Design preview · example conversations</a> : <span className="local-caption">Conversations stay on your chosen backend</span>}</footer>
     </aside>
 
     <main className="main-pane"><header className="topbar"><button className="icon-button sidebar-toggle" aria-label="Toggle sidebar" onClick={() => { if (window.innerWidth < 760) setSidebarOpen(!sidebarOpen); else setSidebarHidden(!sidebarHidden) }}><Icon name="panel" /></button>{view === 'native' ? <IconButton icon="back" label="Back to Claude agents" onClick={showAgents} /> : <Icon name={view === 'agents' ? 'agents' : 'folder'} size={22} />}<h1 className="topbar-title">{currentTitle}</h1><div className="topbar-actions"><Appearance />{view !== 'agents' && <IconButton icon="info" label="Session details" onClick={() => setDetailsOpen(!detailsOpen)} active={detailsOpen} />}</div></header>
       {error && !modal && <div className="error-banner" role="alert"><span>{error}</span><IconButton icon="close" label="Dismiss error" onClick={() => setError('')} /></div>}
+      {!preview && health?.allowAnyOrigin && <div className="warning-banner" role="alert">Unsafe development mode: every website origin can access this backend, read conversations, and run Claude commands. Remove CC_CHAT_ALLOW_ANY_ORIGIN to secure it.</div>}
       {!preview && loaded && health && !health.claudeAvailable && <div className="warning-banner">Claude Code wasn’t found. Install it, run <code>claude auth login</code>, then restart this app.</div>}
       <div className="main-body">
         <div className="content-pane">

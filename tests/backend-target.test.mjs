@@ -16,12 +16,19 @@ test('host selects the same backend for REST and SSE, accepts bare hosts and tra
   }
   assert.equal(backendTarget(`${cloud}?host=http://[::1]:4318`).origin,'http://[::1]:4318')
 })
-test('host cannot route prompts to arbitrary servers, paths, credentials, or schemes', () => {
-  for(const host of ['', 'evil.example', '127.0.0.1.evil.example', 'https://public.example', 'http://192.168.1.2:4318', 'ftp://localhost', 'http://user:secret@localhost', 'http://localhost/api','http://localhost/?token=secret','http://localhost/#foo','localhost:abc','localhost\\@evil.example']) {
+test('host rejects credentials, paths, and unsafe schemes', () => {
+  for(const host of ['', 'ftp://localhost', 'http://user:secret@localhost', 'http://localhost/api','http://localhost/?token=secret','http://localhost/#foo','localhost:abc','localhost\\@evil.example']) {
     assert.throws(()=>backendTarget(`${cloud}?host=${encodeURIComponent(host)}`),host)
   }
   assert.throws(()=>backendApiUrl(cloud,'//evil.example'))
 })
+test('host accepts explicit LAN, VPN, and public HTTP(S) backend origins', () => {
+  for(const host of ['192.168.1.2:4318','100.64.1.2:4318','https://my-backend.example','http://dev-machine.local:4318']) {
+    const url=`${cloud}?host=${encodeURIComponent(host)}`
+    assert.equal(backendTarget(url).origin, new URL(host.includes('://')?host:`http://${host}`).origin)
+  }
+})
+
 test('host-specific drafts never leak across backend origins; existing local keys are retained', () => {
   assert.equal(workspaceStorageKey('http://127.0.0.1:5173/','selected'),'cc:selected')
   assert.notEqual(workspaceStorageKey(`${cloud}?host=localhost:4318`,'draft:new:'),workspaceStorageKey(`${cloud}?host=localhost:4319`,'draft:new:'))

@@ -1,19 +1,19 @@
 export const DEFAULT_BACKEND = 'http://127.0.0.1:4318'
 export const isLoopback = (hostname: string) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
 
-/** Select a local backend without accepting credentials, paths, or remote targets. */
+/** Select an HTTP(S) backend without accepting embedded credentials or paths. */
 export function backendTarget(href: string) {
   const page = new URL(href)
   const hosted = !isLoopback(page.hostname)
   const raw = page.searchParams.get('host')
   if (raw === null && !hosted) return { base: '', origin: page.origin, hosted, explicit: false }
   const value = raw === null ? DEFAULT_BACKEND : raw.trim()
-  if (!value || /[\s\\]/.test(value)) throw new Error('Use a local address such as http://127.0.0.1:4318.')
+  if (!value || /[\s\\]/.test(value)) throw new Error('Use an address such as http://127.0.0.1:4318.')
   let target: URL
   try { target = new URL(value.includes('://') ? value : `http://${value}`) }
-  catch { throw new Error('The backend address is not a valid local URL.') }
-  if (!['http:', 'https:'].includes(target.protocol) || !isLoopback(target.hostname) || target.username || target.password || target.pathname !== '/' || target.search || target.hash) {
-    throw new Error('Choose a loopback HTTP(S) origin only: localhost, 127.0.0.1, or [::1], with an optional port. No paths or credentials.')
+  catch { throw new Error('The backend address is not a valid HTTP(S) URL.') }
+  if (!['http:', 'https:'].includes(target.protocol) || !target.hostname || target.hostname.includes('*') || target.username || target.password || target.pathname !== '/' || target.search || target.hash) {
+    throw new Error('Choose an HTTP(S) backend origin with an optional port. No paths, credentials, or query parameters.')
   }
   return { base: target.origin === page.origin ? '' : target.origin, origin: target.origin, hosted, explicit: raw !== null }
 }
