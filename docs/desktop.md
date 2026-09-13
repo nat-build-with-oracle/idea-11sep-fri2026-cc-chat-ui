@@ -33,7 +33,19 @@ The default port is `4318`. For isolated testing, launch the executable with `CC
 
 The native host bundles `server/`, `dist/`, `package.json`, and runtime `node_modules/`. Because both launch paths execute the same backend modules, the existing Node API suite is also the desktop compatibility suite. Desktop state is stored in the app's macOS Application Support directory and logs in the standard app log directory; neither is written into the signed app bundle.
 
-The HTTP server remains bound to loopback, validates its `Host` header, and preserves the existing origin policy. The app does not add remote access, authentication, or a tunnel. Full access still invokes Claude with bypassed permission prompts; use it only with trusted repositories.
+The primary HTTP server remains bound to loopback, validates its `Host` header, and preserves the existing origin policy. Optional [VPN access](vpn-access.md) adds a listener on the configured NetBird address with authenticated access by default; it does not bind every interface or create a VPN tunnel. Full access still invokes Claude with bypassed permission prompts; use it only with trusted repositories.
+
+## Source alpha releases
+
+The current GitHub alpha is source-only. No prebuilt DMG is attached: the previously cached installer was stale, and redistribution of bundled third-party runtime components has not been cleared. Local macOS builds are supported, but Developer ID signing and notarization are not configured here. Do not interpret an ad-hoc local build as a signed public installer.
+
+To reproduce the visible release version when building this tag:
+
+```sh
+CC_CHAT_BUILD_VERSION=v26.9.13-alpha.1324 just desktop-build
+```
+
+The optional version pin is validated. Build time and Git revision still describe the actual build; an unset pin continues to use the Bangkok CalVer clock. The npm, Tauri, and Cargo manifests carry the release version independently of later development-build timestamps.
 
 ## Hosted workspace and ports
 

@@ -2,29 +2,33 @@
 
 A Codex-inspired chat UI for Claude Code on your Mac. Real sessions, repository threads, and streaming replies.
 
-![ARRA Claude Code new-chat workspace](docs/images/tutorial-new-chat.png)
+![ARRA Claude Code new-chat workspace](docs/images/claude-only-tour/01-new-chat.jpg)
 
-**[Explore features →](docs/features.md)** · [Tutorial](docs/tutorials/using-claude-code-chat-ui.md) · [Deployment](docs/cloudflare.md) · [Mobile view](docs/images/token-usage-mobile.png)
+**[Explore features →](docs/features.md)** · [Claude Code and AI naming](docs/claude-code-and-session-names.md) · [Complete visual tour · 20 images](docs/tutorials/claude-only-complete-tour.md) · [Releases](https://github.com/nat-build-with-oracle/idea-11sep-fri2026-cc-chat-ui/releases) · [Deployment](docs/cloudflare.md)
+
+**Current source alpha: `v26.9.13-alpha.1324`.** Claude Code only; previous non-Claude chats remain read-only. This release does not ship a prebuilt DMG or update the hosted Cloudflare UI. [Release notes](docs/releases/v26.9.13-alpha.1324.md).
 
 ## See it in action
 
 | Stream a reply | Pick up a saved session |
 | --- | --- |
-| ![Safe streamed reply with token usage](docs/images/tutorial-streamed-reply.png) | ![Saved Claude sessions](docs/images/tutorial-native-sessions.png) |
+| ![Fixture reply with token usage](docs/images/claude-only-tour/03-chat-reply.jpg) | ![Saved Claude sessions](docs/images/claude-only-tour/14-saved-sessions.jpg) |
 
 | Organize each project | Load the whole conversation |
 | --- | --- |
-| ![Repository sorting, rename, and hide controls](docs/images/tutorial-repository-tools.png) | ![Long conversation fully loaded](docs/images/tutorial-history-loaded.png) |
+| ![Repository sorting, rename, and hide controls](docs/images/claude-only-tour/11-project-tools.jpg) | ![Long conversation fully loaded](docs/images/claude-only-tour/16-history-loaded.jpg) |
 
 | Share Oracle context with `@` | Alias + Session ID + CLI |
 | --- | --- |
-| ![Oracle mention picker](docs/images/tutorial-oracle-mention.png) | ![Active session display alias and copyable CLI](docs/images/tutorial-session-alias-cli.png) |
+| ![Oracle and session mention picker](docs/images/claude-only-tour/06-context-mentions.jpg) | ![Native session identity and details](docs/images/claude-only-tour/18-session-details.jpg) |
 
 | Expand every terminal command | Autocomplete `/` commands |
 | --- | --- |
-| ![Full resume, tmux, and one-shot commands](docs/images/tutorial-full-commands.png) | ![Slash command suggestions](docs/images/tutorial-slash-commands.png) |
+| ![Full resume, tmux, and one-shot commands](docs/images/claude-only-tour/05-session-commands.jpg) | ![Slash command suggestions](docs/images/claude-only-tour/08-slash-commands.jpg) |
 
-**[Open the full visual walkthrough →](docs/tutorials/using-claude-code-chat-ui.md)**
+These captures use synthetic data and fake model responses. The fake runner writes no Claude JSONL, so its history-sync badge remains unresolved; it is not live-sync evidence. See the tour for capture and verification limits.
+
+**[Open the complete Claude-only visual walkthrough →](docs/tutorials/claude-only-complete-tour.md)**
 
 ## Quick start
 
@@ -59,7 +63,7 @@ CC_CHAT_FRONTEND_ORIGIN=https://cc-chat-ui.laris.workers.dev npm start
 
 **[Open workspace →](https://cc-chat-ui.laris.workers.dev/?host=http://127.0.0.1:4318)** · Keep the backend running on this Mac. Allow this trusted site’s local-device access when prompted.
 
-Cloudflare hosts the interface; conversations and execution stay on your selected backend. Claude Code still contacts Anthropic. [Setup and security →](docs/cloudflare.md)
+Cloudflare hosts the interface; conversations and execution stay on your selected backend. Claude Code contacts Anthropic. [Setup and security →](docs/cloudflare.md)
 
 ## Comet blocking the connection?
 

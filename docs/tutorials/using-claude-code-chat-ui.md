@@ -1,5 +1,7 @@
 # Use ARRA Claude Code locally
 
+> For the current Claude-only release, use the [complete visual tour with 20 new screenshots](claude-only-complete-tour.md). This earlier walkthrough is preserved for reference.
+
 For developers who want a browser UI for their existing Claude Code login, repositories, saved sessions, and streamed replies on a Mac.
 
 ## Before you begin
@@ -139,4 +141,4 @@ Open **Theme** in the top bar and choose a preset. Paper is the default; the sel
 
 - Interface observed on 2026-09-12.
 - Full-page screenshots were captured from the repository’s isolated smoke fixture at `127.0.0.1:4319`; no personal conversations, credentials, or production writes were used.
-- Conversation data and execution stay on the selected local backend. Claude Code still contacts Anthropic.
+- Conversation data and execution stay on the selected local backend. Claude Code contacts Anthropic.

@@ -161,6 +161,11 @@ const server = await createServer({
   distDir,
   runner: new SmokeRunner(),
   nativeSessions: new SmokeNativeSessions(),
+  // Tutorial captures must never spend Claude quota or send fixture history to an API.
+  sessionNameGenerator: async () => ({
+    summary: 'A fixture conversation about planning a reliable Oracle workspace and reviewing its session history.',
+    suggestions: ['Oracle workspace planning', 'Session history review', 'Reliable Claude workflow'],
+  }),
 });
 
 let closing = false;
