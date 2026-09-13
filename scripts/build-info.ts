@@ -22,6 +22,8 @@ const bangkokClock = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 })
 
+const pinnedVersionPattern = /^v\d{2}\.(?:[1-9]|1[0-2])\.(?:[1-9]|[12]\d|3[01])-alpha\.(0|[1-9]\d{0,3})$/
+
 function clockPart(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) {
   const value = parts.find((part) => part.type === type)?.value
   if (value === undefined) throw new Error(`Missing ${type} from Bangkok build clock`)
@@ -32,10 +34,12 @@ export function createBuildInfo({
   now = new Date(),
   revision = readGitRevision(),
   mode = 'development',
+  version,
 }: {
   now?: Date
   revision?: string
   mode?: BuildMode
+  version?: string
 } = {}): BuildInfo {
   if (Number.isNaN(now.getTime())) throw new Error('Build time must be a valid date')
   const parts = bangkokClock.formatToParts(now)
@@ -45,9 +49,16 @@ export function createBuildInfo({
   const hour = clockPart(parts, 'hour')
   const minute = clockPart(parts, 'minute')
   const stamp = now.toISOString().replace(/[-:.]/g, '')
+  const pinnedVersion = version === undefined ? undefined : pinnedVersionPattern.exec(version)
+  if (version !== undefined) {
+    const clock = Number(pinnedVersion?.[1])
+    if (!pinnedVersion || clock > 2359 || clock % 100 > 59) {
+      throw new Error('CC_CHAT_BUILD_VERSION must use vYY.M.D-alpha.HMM with a valid Bangkok wall-clock HMM')
+    }
+  }
 
   return {
-    version: `v${year}.${month}.${day}-alpha.${hour * 100 + minute}`,
+    version: version ?? `v${year}.${month}.${day}-alpha.${hour * 100 + minute}`,
     builtAt: now.toISOString(),
     revision,
     id: `${stamp}-${revision}`,

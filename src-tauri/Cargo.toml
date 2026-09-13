@@ -1,6 +1,6 @@
 [package]
 name = "arra-claude-code-server"
-version = "0.1.0"
+version = "26.9.13-alpha.1324"
 description = "Local ARRA Claude Code backend and menu bar controller"
 authors = ["Nat Build With Oracle"]
 edition = "2021"

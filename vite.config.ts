@@ -4,7 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import { createBuildInfo } from './scripts/build-info.ts'
 
 export default defineConfig(({ mode }) => {
-  const buildInfo = createBuildInfo({ mode: mode === 'production' ? 'production' : 'development' })
+  const buildInfo = createBuildInfo({
+    mode: mode === 'production' ? 'production' : 'development',
+    version: process.env.CC_CHAT_BUILD_VERSION,
+  })
 
   return {
     define: { __BUILD_INFO__: JSON.stringify(buildInfo) },
