@@ -224,7 +224,7 @@ export class ClaudeRunner {
     return this.healthPromise;
   }
 
-  run({ chatId, sessionId, title, model, permissionMode, cwd, prompt, onUpdate }) {
+  run({ chatId, sessionId, title, model, permissionMode, cwd, prompt, onUpdate, env }) {
     if (this.running.has(chatId)) throw Object.assign(new Error('Chat is already running'), { statusCode: 409 });
     const selectedSessionId = sessionId || randomUUID();
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model];
@@ -236,7 +236,7 @@ export class ClaudeRunner {
       args.push('--session-id', selectedSessionId);
     }
 
-    const child = this.spawnFn(this.command, args, { cwd, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = this.spawnFn(this.command, args, { cwd, ...(env ? { env } : {}), shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     const normalizer = new StreamNormalizer(onUpdate);
     let stderr = '';
     let interrupted = false;

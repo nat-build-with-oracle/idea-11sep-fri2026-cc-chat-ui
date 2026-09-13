@@ -13,9 +13,10 @@ export async function loadFreshExistingTerminal(sessionId: string, loadSessions:
   }
 }
 
-export function RepositoryActions({ name, alias, favorite, threadSort, onFavorite, onRename, onThreadSort, onHide }: {
+export function RepositoryActions({ name, alias, favorite, threadSort, onFavorite, onRename, onThreadSort, onHide, onSuggestNames }: {
   name: string; alias?: string; favorite: boolean; threadSort: RepositoryThreadSort
   onFavorite: () => void; onRename: (name: string) => void; onThreadSort: (sort: RepositoryThreadSort) => void; onHide: () => void
+  onSuggestNames?: () => void
 }) {
   const details = useRef<HTMLDetailsElement>(null)
   const [editing, setEditing] = useState(false)
@@ -43,6 +44,7 @@ export function RepositoryActions({ name, alias, favorite, threadSort, onFavorit
           <p className="px-2 pt-1 pb-1.5 text-xs font-medium text-[var(--color-muted)]">Sort threads</p>
           {([['updated', 'Latest updated'], ['name', 'Name A–Z']] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={threadSort === value} className={`flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-[var(--color-hover)]! [@media(pointer:coarse)]:min-h-11 ${threadSort === value ? 'bg-[var(--color-raised)] font-medium text-[var(--color-accent)]' : ''}`} onClick={() => { onThreadSort(value); close(true) }}><span className="flex-1">{label}</span>{threadSort === value && <Icon name="check" size={14} />}</button>)}
           <div className="my-2 border-t border-[var(--color-rule)]" />
+          {onSuggestNames && <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-[var(--color-hover)]! [@media(pointer:coarse)]:min-h-11" onClick={() => { close(); onSuggestNames() }}><Icon name="file" size={15} />Suggest session names</button>}
           <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-[var(--color-hover)]! [@media(pointer:coarse)]:min-h-11" onClick={() => { setLabel(alias ?? name); setEditing(true) }}><Icon name="new" size={15} />Rename display name</button>
           <button type="button" className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-[var(--color-hover)]! [@media(pointer:coarse)]:min-h-11" onClick={() => { close(); onHide() }}><Icon name="eyeOff" size={15} />Hide from sidebar</button>
         </>}

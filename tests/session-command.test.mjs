@@ -10,20 +10,52 @@ async function loadCommand(t) {
   return server.ssrLoadModule('/src/SessionCommand.tsx')
 }
 
+test('removed-provider sessions are read-only and never offer Claude commands', async t => {
+  const { default: SessionCommand } = await loadCommand(t)
+  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'legacy-session', provider: 'zai', model: 'glm-5.3', onCopy() {} }))
+  assert.match(html, /removed provider/i)
+  assert.match(html, /read-only/i)
+  assert.doesNotMatch(html, /claude --resume|Copy -p|Copy new tmux|Show all commands/)
+})
+
+test('unsupported stored models never expose Claude commands', async t => {
+  const { default: SessionCommand } = await loadCommand(t)
+  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'future-session', provider: 'claude', model: 'future-model', onCopy() {} }))
+  assert.match(html, /unsupported stored model/i)
+  assert.doesNotMatch(html, /claude --resume|Show all commands/)
+})
+
+test('native legacy read-only reasons suppress commands without provider metadata', async t => {
+  const { default: SessionCommand } = await loadCommand(t)
+  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'native-legacy', readOnlyReason: 'This saved session belongs to a removed provider and is read-only.', onCopy() {} }))
+  assert.match(html, /removed provider/i)
+  assert.doesNotMatch(html, /claude --resume|Show all commands/)
+})
+
 test('resume command copies the exact visible CLI without executing it', async t => {
   const { default: SessionCommand, resumeCommand } = await loadCommand(t)
-  const expected = "cd '/Users/beta/My Repo' && claude --resume 'session-full-id'"
-  assert.equal(resumeCommand('session-full-id', '/Users/beta/My Repo'), expected)
+  const expected = "cd '/Users/example/My Repo' && claude --resume 'session-full-id'"
+  assert.equal(resumeCommand('session-full-id', '/Users/example/My Repo'), expected)
 
   let copied = ''
-  const tree = SessionCommand({ sessionId: 'session-full-id', cwd: '/Users/beta/My Repo', onCopy(command) { copied = command } })
+  const tree = SessionCommand({ sessionId: 'session-full-id', cwd: '/Users/example/My Repo', onCopy(command) { copied = command } })
   tree.props.children[0].props.onClick()
   assert.equal(copied, expected)
 
-  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'session-full-id', cwd: '/Users/beta/My Repo', onCopy() {} }))
-  assert.match(html, /<code>cd &#x27;\/Users\/beta\/My Repo&#x27; &amp;&amp; claude --resume &#x27;session-full-id&#x27;<\/code>/)
+  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'session-full-id', cwd: '/Users/example/My Repo', onCopy() {} }))
+  assert.match(html, /<code>cd &#x27;\/Users\/example\/My Repo&#x27; &amp;&amp; claude --resume &#x27;session-full-id&#x27;<\/code>/)
   assert.match(html, /aria-label="Copy resume command:/)
   assert.match(html, /title="cd/)
+})
+
+test('compact header command is a copyable summary; full commands remain in the disclosure', async t => {
+  const source = await import('node:fs/promises').then(fs => fs.readFile(new URL('../src/styles.css', import.meta.url), 'utf8'))
+  assert.match(source, /\.session-command code \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s)
+  assert.doesNotMatch(source, /\.session-command code \{[^}]*overflow-x:\s*auto;/s)
+  const { default: SessionCommand } = await loadCommand(t)
+  const html = renderToStaticMarkup(createElement(SessionCommand, { sessionId: 'long-session', cwd: '/very/long/project/path', onCopy() {} }))
+  assert.match(html, /Show all commands/)
+  assert.match(html, /Full session commands/)
 })
 
 test('shell quoting preserves apostrophes and cwd is optional', async t => {
@@ -59,7 +91,7 @@ test('the adjacent tmux button copies a named session launcher without replacing
 
 test('one-shot test copies an explicit prompt and preserves the current native session and cwd', async t => {
   const { default: SessionCommand, oneShotCommand } = await loadCommand(t)
-  const id = 'cc08ff60-ab16-41ea-bac6-f3e96ea2d992'
+  const id = '11111111-2222-4333-8444-666666666666'
   const expected = `cd '/repos/neo-oracle' && claude --resume '${id}' -p 'Reply with exactly: ARRA sync test OK. Do not use tools or modify files.' --tools ''`
   assert.equal(oneShotCommand(id, '/repos/neo-oracle'), expected)
   let copied

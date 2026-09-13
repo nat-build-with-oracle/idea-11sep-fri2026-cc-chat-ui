@@ -121,9 +121,10 @@ export function reconcileMessages(saved, source) {
 }
 
 export class TranscriptSync {
-  constructor({ store, nativeSessions, intervalMs = 2000, auditMs = 60_000, readTimeoutMs = 5000 }) {
+  constructor({ store, nativeSessions, canSyncChat = () => true, intervalMs = 2000, auditMs = 60_000, readTimeoutMs = 5000 }) {
     this.store = store;
     this.nativeSessions = nativeSessions;
+    this.canSyncChat = canSyncChat;
     this.auditMs = auditMs;
     this.readTimeoutMs = readTimeoutMs;
     this.reads = new Map();
@@ -147,7 +148,7 @@ export class TranscriptSync {
       const ids = new Set(chats.map(chat => chat.id));
       for (const id of this.tokens.keys()) if (!ids.has(id)) this.tokens.delete(id);
       for (const id of this.failures.keys()) if (!ids.has(id)) this.failures.delete(id);
-      const queue = chats.filter(chat => chat.sessionId && chat.status !== 'running');
+      const queue = chats.filter(chat => chat.sessionId && chat.status !== 'running' && this.canSyncChat(chat));
       await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
         while (!this.closed && queue.length) await this.syncChat(queue.shift().id).catch(() => {});
       }));
@@ -187,8 +188,8 @@ export class TranscriptSync {
 
   async #sync(chatId, force) {
     const before = this.store.snapshot().chats.find(chat => chat.id === chatId);
-    if (!before?.sessionId || before.status === 'running') return false;
-    const unchanged = chat => chat && chat.sessionId === before.sessionId && chat.status !== 'running' && JSON.stringify(chat.messages) === JSON.stringify(before.messages);
+    if (!before?.sessionId || before.status === 'running' || !this.canSyncChat(before)) return false;
+    const unchanged = chat => chat && this.canSyncChat(chat) && chat.sessionId === before.sessionId && chat.status !== 'running' && JSON.stringify(chat.messages) === JSON.stringify(before.messages);
     try {
       const cached = this.tokens.get(chatId);
       const token = !force && before.sync?.status === 'synced' && cached?.sessionId === before.sessionId && Date.now() - cached.auditedAt < this.auditMs ? cached.token : null;

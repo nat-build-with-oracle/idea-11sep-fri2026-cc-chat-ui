@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { backendTarget, backendApiUrl, workspaceStorageKey, workspaceLink } from '../src/backend-target.ts'
+import { backendTarget, backendApiUrl, workspaceStorageKey, workspaceLink, timelineLink } from '../src/backend-target.ts'
 
 const cloud = 'https://chat.example.workers.dev/'
 test('local development stays same-origin; hosted default is the Mac loopback service', () => {
@@ -37,4 +37,30 @@ test('preview and live links retain host and reset only the preview flag and rou
   const href=`${cloud}?host=localhost:4319#/sessions/abc`
   assert.equal(workspaceLink(href,true),'/?host=localhost%3A4319&preview=oracle')
   assert.equal(workspaceLink(`${cloud}?host=localhost:4319&preview=oracle`,false),'/?host=localhost%3A4319#/new')
+})
+
+test('Timeline follows the selected remote backend and preserves the full return URL', () => {
+  const href = 'http://workstation.example:4318/sessions?host=http%3A%2F%2Fworkstation.example%3A4318#/sessions/11111111-2222-4333-8444-555555555555'
+  const link = new URL(timelineLink(href, new URL(href).hash))
+  assert.equal(link.origin, 'http://workstation.example:47882')
+  assert.equal(link.searchParams.get('view'), 'timeline')
+  assert.equal(link.searchParams.get('returnTo'), href)
+})
+
+test('Timeline return route updates with selection without losing backend query or filters', () => {
+  const href = `${cloud}?host=https%3A%2F%2Fbackend.example#/sessions/old`
+  const hash = '#/sessions/new?tab=saved&q=hello+world'
+  const link = new URL(timelineLink(href, hash))
+  assert.equal(link.origin, 'https://backend.example:47882')
+  const back = new URL(link.searchParams.get('returnTo'))
+  assert.equal(back.origin, new URL(cloud).origin)
+  assert.equal(back.searchParams.get('host'), 'https://backend.example')
+  assert.equal(back.hash, hash)
+})
+
+test('local Timeline keeps the existing local service without needing a VPN listener', () => {
+  const href = 'http://127.0.0.1:4318/#/sessions/local'
+  const link = new URL(timelineLink(href, '#/sessions/local'))
+  assert.equal(link.origin, 'http://127.0.0.1:47881')
+  assert.equal(link.searchParams.get('returnTo'), href)
 })

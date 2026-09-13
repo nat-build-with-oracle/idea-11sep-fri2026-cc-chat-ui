@@ -261,7 +261,39 @@ test('stop marks the active assistant interrupted and delete removes only the UI
 test('health exposes cwd and injected Claude availability', async (t) => {
   const f = await fixture(); t.after(f.close);
   const result = await jsonRequest(`${f.origin}/api/health`);
-  assert.deepEqual(result.value, { ok: true, claudeAvailable: true, claudeVersion: 'test', cwd: process.cwd() });
+  assert.equal(result.value.ok, true);
+  assert.equal(result.value.claudeAvailable, true);
+  assert.equal(result.value.claudeVersion, 'test');
+  assert.equal(result.value.cwd, process.cwd());
+  assert.deepEqual(result.value.chatModels, ['sonnet', 'opus', 'haiku']);
+});
+
+test('a persisted removed-provider chat is preserved across restart and cannot send', async (t) => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'cc-chat-model-restart-'));
+  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  const first = await fixture({ dataDir, environment: { PATH: process.env.PATH } });
+  let chat;
+  try {
+    chat = { id: 'old-glm', title: 'Saved', model: 'glm-5.2[1m]', provider: 'zai', sessionId: null, projectId: null, messages: [], status: 'idle', createdAt: '1', updatedAt: '1', permissionMode: 'default' };
+    await first.server.app.store.update(state => { state.chats.push(chat); });
+  } finally { await first.close(); }
+  const second = await fixture({ dataDir, environment: { PATH: process.env.PATH } });
+  t.after(second.close);
+  const sent = await jsonRequest(`${second.origin}/api/chats/${chat.id}/messages`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content: 'must not reach the wrong provider' }),
+  });
+  assert.equal(sent.response.status, 409);
+  assert.match(sent.value.error, /removed provider.*read-only/);
+  assert.equal(second.runner.calls.length, 0);
+  const saved = (await jsonRequest(`${second.origin}/api/state`)).value.chats[0];
+  assert.equal(saved.status, 'idle');
+  assert.deepEqual(saved.messages, []);
+  const renamed = await jsonRequest(`${second.origin}/api/chats/${chat.id}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: 'Still editable' }),
+  });
+  assert.equal(renamed.response.status, 409);
+  assert.equal(second.server.app.store.snapshot().chats[0].title, 'Saved');
 });
 
 test('SSE sends initial and changed state, and disconnecting does not cancel Claude', async (t) => {
@@ -342,7 +374,7 @@ test('accepted turn keeps its model and permission configuration across delayed 
     },
   };
   const runner = new FakeRunner();
-  const f = await fixture({ nativeSessions, runner }); t.after(f.close);
+  const f = await fixture({ nativeSessions, runner, environment: { PATH: process.env.PATH, ANTHROPIC_API_KEY: 'dummy-claude-key' } }); t.after(f.close);
   const imported = (await jsonRequest(`${f.origin}/api/native-sessions/config-session/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).value;
   await jsonRequest(`${f.origin}/api/chats/${imported.id}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: 'use accepted settings' }) });
   const patched = await jsonRequest(`${f.origin}/api/chats/${imported.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'opus', permissionMode: 'default' }) });
@@ -354,6 +386,8 @@ test('accepted turn keeps its model and permission configuration across delayed 
   });
   assert.equal(runner.calls[0].model, 'sonnet');
   assert.equal(runner.calls[0].permissionMode, 'bypassPermissions');
+  assert.equal(runner.calls[0].env.ANTHROPIC_BASE_URL, 'https://api.anthropic.com');
+  assert.equal(runner.calls[0].env.ANTHROPIC_AUTH_TOKEN, undefined);
   runner.complete(imported.id);
 });
 

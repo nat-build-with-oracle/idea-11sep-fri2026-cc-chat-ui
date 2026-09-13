@@ -1,5 +1,5 @@
 import { backendApiUrl, backendTarget } from './backend-target.ts'
-import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory } from './types'
+import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory, SessionNameTarget, SessionNameResult } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const target = backendTarget(window.location.href)
@@ -25,6 +25,8 @@ export async function request<T>(path: string, method = 'GET', body?: unknown, s
 }
 
 export const api = {
+  suggestSessionNames: (target: SessionNameTarget, summaryModel: 'haiku' | 'sonnet', signal?: AbortSignal) => request<SessionNameResult>('/session-names/suggest', 'POST', { target, summaryModel }, signal),
+  applySessionAlias: (target: SessionNameTarget, title: string, expectedTitle: string) => request<{ title: string }>('/session-names/alias', 'POST', { target, title, expectedTitle }),
   repositories: () => request<RepositoryInventory>('/repositories'),
   nativeSessions: () => request<{ sessions: NativeSession[] }>('/native-sessions'),
   nativeHistory: (id: string, offset = 0, signal?: AbortSignal) => request<HistoryPage>(`/native-sessions/${encodeURIComponent(id)}/messages?offset=${offset}&limit=100`, 'GET', undefined, signal),

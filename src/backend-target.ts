@@ -36,3 +36,14 @@ export function workspaceLink(href: string, preview: boolean) {
   url.hash = preview ? '' : '#/new'
   return `${url.pathname}${url.search}${url.hash}`
 }
+
+/** Timeline lives alongside the selected backend, not on the visiting device. */
+export function timelineLink(href: string, hash: string) {
+  const target = new URL(backendTarget(href).origin)
+  target.port = isLoopback(target.hostname) ? '47881' : '47882'
+  const returnTo = new URL(href)
+  returnTo.hash = hash
+  target.searchParams.set('view', 'timeline')
+  target.searchParams.set('returnTo', returnTo.href)
+  return target.href
+}

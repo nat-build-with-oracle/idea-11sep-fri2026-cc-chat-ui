@@ -1,11 +1,15 @@
 import { Icon } from './Icon'
 import { tmuxResumeCommand, tmuxSessionName } from './tmux-command'
 import type { NativeSession } from './types'
+import { chatReadOnlyReason } from './claude-chat'
 
 type SessionCommandProps = {
   sessionId: string | null | undefined
   cwd?: string
   title?: string
+  provider?: string
+  model?: string
+  readOnlyReason?: string
   existingTerminal?: NativeSession['existingTerminal']
   onCopy: (command: string, kind: 'attach' | 'resume' | 'tmux' | 'oneshot') => void
 }
@@ -23,8 +27,10 @@ export function oneShotCommand(sessionId: string, cwd?: string, dangerous = fals
   return `${resumeCommand(sessionId, cwd, dangerous)} -p ${shellQuote('Reply with exactly: ARRA sync test OK. Do not use tools or modify files.')} --tools ''`
 }
 
-export default function SessionCommand({ sessionId, cwd, title, existingTerminal, onCopy }: SessionCommandProps) {
+export default function SessionCommand({ sessionId, cwd, title, provider = 'claude', model = 'sonnet', readOnlyReason: explicitReadOnlyReason, existingTerminal, onCopy }: SessionCommandProps) {
   if (!sessionId) return null
+  const readOnlyReason = explicitReadOnlyReason || chatReadOnlyReason({ provider, model })
+  if (readOnlyReason) return <div className="field-help">{readOnlyReason} Claude launch commands are unavailable for this read-only record.</div>
   const command = resumeCommand(sessionId, cwd)
   const tmux = tmuxResumeCommand(sessionId, cwd, title)
   const name = tmuxSessionName(sessionId, cwd, title)

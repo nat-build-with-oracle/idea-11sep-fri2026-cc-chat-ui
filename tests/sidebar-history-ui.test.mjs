@@ -5,6 +5,21 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 import { readFile } from 'node:fs/promises'
 
+test('sidebar timeline uses native same-tab navigation so browser Back can return', async () => {
+  const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8')
+  const navigation = source.slice(source.indexOf('<div className="primary-nav">'), source.indexOf('<nav className="sidebar-scroll">'))
+  const link = navigation.match(/<a\b[^>]*href=\{[\s\S]*?<\/a>/)?.[0]
+  assert.match(link, /timelineLink\(window.location.href/)
+  assert.match(link, /routeHash\(route\)/)
+  assert.ok(link, 'Live Timeline must be in the primary sidebar navigation')
+  assert.doesNotMatch(link, /target=|opens in a new tab/)
+  assert.match(link, /rel="noreferrer"/)
+  assert.match(link, /Back button to return/)
+  assert.match(link, /<span>Live Timeline<\/span>/)
+  assert.match(link, /className="agents-nav no-underline"/)
+  assert.doesNotMatch(link, /onClick|onMouseEnter|aria-current|selected/)
+})
+
 test('history controls expose load-all, separate one-page loading, stop, and partial completion states', async t => {
   const server = await createServer({ server: { middlewareMode: true, watch: null, ws: false }, appType: 'custom' })
   t.after(() => server.close())
@@ -136,7 +151,7 @@ test('App targets sidebar renames by identity and keeps display aliases out of p
   assert.match(source, />ARRA Claude Code<\/span>/)
   assert.match(source, /document\.title = `\$\{currentTitle\} — ARRA Claude Code`/)
   assert.match(source, /existingTerminalFor\(thread\.item\.sessionId\)/)
-  assert.match(source, /existingTerminal=\{thread\.item\.existingTerminal\}/)
+  assert.match(source, /existingTerminal=\{thread\.item\.readOnlyReason \? undefined : thread\.item\.existingTerminal\}/)
   assert.match(source, /existingTerminalFor\(item\.sessionId\)/)
   assert.match(source, /copy\(fresh\.existingTerminal\.attachCommand, `Existing terminal copied/)
   assert.match(source, /currentExistingTerminal && currentSessionId \? <button[\s\S]*?Copy existing terminal/)

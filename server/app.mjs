@@ -6,12 +6,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeRunner } from './claude-runner.mjs';
 import { NativeSessionService } from './native-sessions.mjs';
+import { createClaudeEnvironment } from './claude-environment.mjs';
 import { TranscriptSync } from './transcript-sync.mjs';
 import { RepositoryService } from './repositories.mjs';
+import { SESSION_NAMING_CAPABILITY, SessionNamingService } from './session-naming.mjs';
 import { JsonStore, validateProjectPath } from './store.mjs';
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const CHAT_MODELS = new Set(['sonnet', 'opus', 'haiku']);
+
+function isClaudeChat(chat) {
+  return (chat.provider === undefined || chat.provider === 'claude') && CHAT_MODELS.has(chat.model);
+}
+
+function assertClaudeChat(chat) {
+  if (!isClaudeChat(chat)) {
+    throw apiError('This conversation used a removed provider and is read-only. Start a new Claude chat to continue.', 409);
+  }
+}
+
+function validateClaudeInput(input) {
+  if ('provider' in input && input.provider !== 'claude') throw apiError('Only Claude Code is supported');
+  if ('model' in input && !CHAT_MODELS.has(input.model)) throw apiError('Invalid model');
+}
 const PERMISSION_MODES = new Set(['bypassPermissions', 'default']);
 
 function apiError(message, statusCode = 400) {
@@ -112,6 +129,19 @@ function value(value, name, maximum = 200_000) {
   return trimmed;
 }
 
+function namingTarget(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw apiError('Target is required');
+  if (Object.keys(input).some((key) => key !== 'kind' && key !== 'id')) throw apiError('Unknown target field');
+  if (input.kind !== 'chat' && input.kind !== 'native') throw apiError('Invalid target kind');
+  return { kind: input.kind, id: value(input.id, 'Target id', 500) };
+}
+
+function expectedTitle(value) {
+  if (typeof value !== 'string') throw apiError('Expected title is required');
+  if (value.length > 500) throw apiError('Expected title is too long');
+  return value;
+}
+
 function findChat(state, id) {
   const chat = state.chats.find((item) => item.id === id);
   if (!chat) throw apiError('Chat not found', 404);
@@ -190,10 +220,16 @@ export async function createApp(options = {}) {
     console.warn('WARNING: allow-any-origin mode is enabled. Websites can read conversations and execute Claude commands, even while this server is bound to loopback.');
   }
   const cwd = path.resolve(options.cwd || process.cwd());
+  const claudeEnvironment = createClaudeEnvironment(options.environment ?? process.env);
   const store = options.store || await new JsonStore({ dataDir: options.dataDir, cwd }).init();
   const runner = options.runner || new ClaudeRunner(options.runnerOptions);
   const nativeSessions = options.nativeSessions || new NativeSessionService(options.nativeSessionOptions);
   const repositories = options.repositories || new RepositoryService(options.repositoryOptions);
+  const sessionNaming = options.sessionNaming || new SessionNamingService({
+    ...options.sessionNamingOptions,
+    generateFn: options.sessionNameGenerator,
+    environmentForTarget: options.sessionNamingEnvironment || (() => claudeEnvironment),
+  });
   const configuredDevOrigin = options.devOrigin ?? process.env.DEV_ORIGIN ?? '';
   let devOrigin = '';
   if (configuredDevOrigin) {
@@ -205,16 +241,27 @@ export async function createApp(options = {}) {
   }
   const distDir = path.resolve(options.distDir || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist'));
   const broadcaster = makeBroadcaster(store);
-  const transcriptSync = new TranscriptSync({ store, nativeSessions, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
+  const transcriptSync = new TranscriptSync({ store, nativeSessions, canSyncChat: isClaudeChat, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
   const historyLoads = new Map();
   const activeRuns = new Set();
   let closing = false;
   let closePromise;
 
+  function assertClaudeSession(sessionId) {
+    for (const chat of store.snapshot().chats) if (chat.sessionId === sessionId) assertClaudeChat(chat);
+  }
+
   async function listedNativeSessions() {
-    const aliases = new Map(store.snapshot().nativeSessionAliases.map((alias) => [alias.sessionId, alias.title]));
+    const snapshot = store.snapshot();
+    const aliases = new Map(snapshot.nativeSessionAliases.map((alias) => [alias.sessionId, alias.title]));
+    const readOnlyIds = new Set(snapshot.chats.filter(chat => !isClaudeChat(chat)).map(chat => chat.sessionId).filter(Boolean));
     return (await nativeSessions.list()).map((session) => {
       const alias = session.sessionId ? aliases.get(session.sessionId) : null;
+      if (readOnlyIds.has(session.sessionId)) {
+        const saved = { ...session, ...(alias ? { name: alias } : {}), action: 'unavailable', terminalCommand: null, readOnlyReason: 'This session used a removed provider. Its saved conversation is read-only.' };
+        delete saved.existingTerminal;
+        return saved;
+      }
       return alias ? { ...session, name: alias } : session;
     });
   }
@@ -223,6 +270,7 @@ export async function createApp(options = {}) {
     if (historyLoads.has(chatId)) return historyLoads.get(chatId);
     const operation = (async () => {
       const before = findChat(store.snapshot(), chatId);
+      assertClaudeChat(before);
       if (before.status === 'running') throw apiError('History cannot be loaded while a chat is running', 409);
       if (!before.nativeImported || !before.sessionId) throw apiError('Chat is not an imported native session', 409);
       const offset = before.historyNextOffset;
@@ -289,6 +337,7 @@ export async function createApp(options = {}) {
       const chat = findChat(launchState, chatId);
       const assistant = chat.messages.find((message) => message.id === assistantId);
       if (closing || chat.status !== 'running' || assistant?.status !== 'streaming') return;
+      assertClaudeChat(launch);
       done = runner.run({
         chatId,
         sessionId: launch.sessionId,
@@ -297,6 +346,7 @@ export async function createApp(options = {}) {
         permissionMode: launch.permissionMode,
         cwd: native && launch.nativeImported ? native.cwd : launch.cwd,
         prompt,
+        env: claudeEnvironment,
         onUpdate(update) {
           void store.update((state) => {
             const current = state.chats.find((item) => item.id === chatId);
@@ -337,7 +387,7 @@ export async function createApp(options = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();
-        return json(response, 200, { ok: true, ...health, cwd, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
+        return json(response, 200, { ok: true, ...health, cwd, chatModels: [...CHAT_MODELS], sessionNaming: SESSION_NAMING_CAPABILITY, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
       }
       if (request.method === 'GET' && url.pathname === '/api/status') {
         return json(response, 200, {
@@ -351,6 +401,7 @@ export async function createApp(options = {}) {
       }
       const historySessionId = nativeSessionId(url.pathname, '/messages');
       if (historySessionId && request.method === 'GET') {
+        assertClaudeSession(historySessionId);
         const offset = url.searchParams.has('offset') ? Number(url.searchParams.get('offset')) : 0;
         const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 100;
         return json(response, 200, await nativeSessions.messages(historySessionId, { offset, limit }));
@@ -361,6 +412,80 @@ export async function createApp(options = {}) {
         void transcriptSync.tick();
         response.once('close', () => broadcaster.remove(response));
         return;
+      }
+      if (request.method === 'POST' && url.pathname === '/api/session-names/suggest') {
+        const input = await body(request);
+        if (Object.keys(input).some((key) => key !== 'target' && key !== 'summaryModel')) throw apiError('Unknown session naming field');
+        const target = namingTarget(input.target);
+        if (!SESSION_NAMING_CAPABILITY.summaryModels.includes(input.summaryModel)) throw apiError('Invalid summary model');
+        let messages;
+        let sourceTruncated = false;
+        let context;
+        if (target.kind === 'chat') {
+          const chat = findChat(store.snapshot(), target.id);
+          assertClaudeChat(chat);
+          messages = chat.messages;
+          sourceTruncated = Boolean(chat.historyTruncated || chat.historyUnavailable || (chat.historyNextOffset !== null && chat.historyNextOffset !== undefined));
+          context = { kind: 'chat', model: chat.model };
+        } else {
+          assertClaudeSession(target.id);
+          const history = await nativeSessions.messages(target.id, { offset: 0, limit: 200 });
+          messages = history.messages;
+          sourceTruncated = history.nextOffset !== null;
+          context = { kind: 'native', model: 'sonnet' };
+        }
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        request.once('aborted', abort);
+        response.once('close', abort);
+        try {
+          const suggestion = await sessionNaming.suggest({ messages, summaryModel: input.summaryModel, sourceTruncated, context, signal: controller.signal });
+          request.removeListener('aborted', abort);
+          response.removeListener('close', abort);
+          return json(response, 200, suggestion);
+        } finally {
+          request.removeListener('aborted', abort);
+          response.removeListener('close', abort);
+        }
+      }
+      if (request.method === 'POST' && url.pathname === '/api/session-names/alias') {
+        const input = await body(request);
+        if (Object.keys(input).some((key) => key !== 'target' && key !== 'title' && key !== 'expectedTitle')) throw apiError('Unknown session alias field');
+        const target = namingTarget(input.target);
+        const title = value(input.title, 'Title', 120);
+        const expected = expectedTitle(input.expectedTitle);
+        let native = null;
+        if (target.kind === 'chat') assertClaudeChat(findChat(store.snapshot(), target.id));
+        if (target.kind === 'native') {
+          assertClaudeSession(target.id);
+          native = (await nativeSessions.list()).find((candidate) => candidate.sessionId === target.id);
+          if (!native) throw apiError('Native session not found', 404);
+        }
+        await store.update((state) => {
+          const now = new Date().toISOString();
+          let sessionId = target.kind === 'native' ? target.id : null;
+          if (target.kind === 'chat') {
+            const chat = findChat(state, target.id);
+            if (chat.title !== expected) throw apiError('Session title changed before the alias was applied', 409);
+            sessionId = chat.sessionId;
+            chat.title = title;
+            chat.updatedAt = now;
+          } else {
+            const currentAlias = state.nativeSessionAliases.findLast((alias) => alias.sessionId === target.id);
+            if ((currentAlias?.title ?? native.name ?? '') !== expected) throw apiError('Session title changed before the alias was applied', 409);
+          }
+          if (sessionId) {
+            state.nativeSessionAliases = state.nativeSessionAliases.filter((alias) => alias.sessionId !== sessionId);
+            state.nativeSessionAliases.push({ sessionId, title, updatedAt: now });
+            for (const chat of state.chats) {
+              if (chat.sessionId !== sessionId) continue;
+              chat.title = title;
+              chat.updatedAt = now;
+            }
+          }
+          return null;
+        });
+        return json(response, 200, { title });
       }
       if (request.method === 'POST' && url.pathname === '/api/projects') {
         const input = await body(request);
@@ -381,7 +506,7 @@ export async function createApp(options = {}) {
         projectFor(snapshot, projectId);
         const model = input.model ?? 'sonnet';
         const permissionMode = input.permissionMode ?? 'bypassPermissions';
-        if (!CHAT_MODELS.has(model)) throw apiError('Invalid model');
+        validateClaudeInput(input);
         if (!PERMISSION_MODES.has(permissionMode)) throw apiError('Invalid permission mode');
         const now = new Date().toISOString();
         const title = input.title === undefined ? 'New chat' : value(input.title, 'Title', 500);
@@ -392,18 +517,22 @@ export async function createApp(options = {}) {
       const importSessionId = nativeSessionId(url.pathname, '/import');
       if (importSessionId && request.method === 'POST') {
         const input = await body(request);
+        const model = input.model ?? 'sonnet';
+        validateClaudeInput(input);
+        assertClaudeSession(importSessionId);
         const existing = store.snapshot().chats.find((chat) => chat.sessionId === importSessionId);
-        if (existing) return json(response, 200, existing);
+        if (existing) {
+          assertClaudeChat(existing);
+          return json(response, 200, existing);
+        }
         const native = await nativeSessions.resumable(importSessionId);
         const projectPath = await validateProjectPath(native.cwd);
-        const model = input.model ?? 'sonnet';
         const permissionMode = input.permissionMode ?? 'bypassPermissions';
-        if (!CHAT_MODELS.has(model)) throw apiError('Invalid model');
         if (!PERMISSION_MODES.has(permissionMode)) throw apiError('Invalid permission mode');
         const history = await nativeSessions.messages(native.sessionId, { offset: 0, limit: 200 });
         const imported = await store.update((state) => {
           const alreadyImported = state.chats.find((chat) => chat.sessionId === native.sessionId);
-          if (alreadyImported) return alreadyImported;
+          if (alreadyImported) { assertClaudeChat(alreadyImported); return alreadyImported; }
           let project = state.projects.find((item) => (item.canonicalPath || item.path) === projectPath);
           const now = new Date().toISOString();
           if (!project) {
@@ -435,6 +564,7 @@ export async function createApp(options = {}) {
       }
       const renameNativeSessionId = nativeSessionId(url.pathname);
       if (renameNativeSessionId && request.method === 'PATCH') {
+        assertClaudeSession(renameNativeSessionId);
         const input = await body(request);
         if (Object.keys(input).some((key) => key !== 'title')) throw apiError('Unknown native session field');
         const title = value(input.title, 'Title', 500);
@@ -461,6 +591,7 @@ export async function createApp(options = {}) {
       if (syncChatId && request.method === 'POST') {
         await body(request);
         const chat = findChat(store.snapshot(), syncChatId);
+        assertClaudeChat(chat);
         if (chat.status === 'running') throw apiError('Wait for the web response to finish before syncing', 409);
         await transcriptSync.syncChat(syncChatId, { force: true });
         return json(response, 200, findChat(store.snapshot(), syncChatId));
@@ -476,8 +607,9 @@ export async function createApp(options = {}) {
         const allowed = new Set(['title', 'projectId', 'model', 'permissionMode']);
         if (Object.keys(input).some((key) => !allowed.has(key))) throw apiError('Unknown chat field');
         const current = findChat(store.snapshot(), chatId);
+        assertClaudeChat(current);
+        validateClaudeInput(input);
         if ('title' in input) value(input.title, 'Title', 500);
-        if ('model' in input && !CHAT_MODELS.has(input.model)) throw apiError('Invalid model');
         if ('permissionMode' in input && !PERMISSION_MODES.has(input.permissionMode)) throw apiError('Invalid permission mode');
         if ('projectId' in input) {
           const projectId = input.projectId ?? null;
@@ -488,8 +620,9 @@ export async function createApp(options = {}) {
         if ('title' in input && current.sessionId && input.title.trim() !== current.title) await nativeSessions.rename(current.sessionId, input.title.trim());
         const updated = await store.update((state) => {
           const chat = findChat(state, chatId);
+          assertClaudeChat(chat);
           if ('title' in input) chat.title = value(input.title, 'Title', 500);
-          if ('model' in input) { if (!CHAT_MODELS.has(input.model)) throw apiError('Invalid model'); chat.model = input.model; }
+          if ('model' in input) chat.model = input.model;
           if ('permissionMode' in input) { if (!PERMISSION_MODES.has(input.permissionMode)) throw apiError('Invalid permission mode'); chat.permissionMode = input.permissionMode; }
           if ('projectId' in input) {
             const projectId = input.projectId ?? null;
@@ -504,6 +637,7 @@ export async function createApp(options = {}) {
         return json(response, 200, updated);
       }
       if (chatId && request.method === 'DELETE') {
+        assertClaudeChat(findChat(store.snapshot(), chatId));
         await runner.stop(chatId);
         await store.update((state) => { const index = state.chats.findIndex((chat) => chat.id === chatId); if (index < 0) throw apiError('Chat not found', 404); state.chats.splice(index, 1); return null; });
         response.writeHead(204); response.end(); return;
@@ -514,6 +648,7 @@ export async function createApp(options = {}) {
         const content = value(input.content, 'Message content');
         const beforeSend = findChat(store.snapshot(), messageChatId);
         if (beforeSend.status === 'running') throw apiError('Chat is already running', 409);
+        assertClaudeChat(beforeSend);
         if (beforeSend.nativeImported && beforeSend.historyNextOffset !== null && beforeSend.historyNextOffset !== undefined) {
           throw apiError('Load the complete native session history before sending a new message', 409);
         }
@@ -529,6 +664,7 @@ export async function createApp(options = {}) {
           if (closing) throw apiError('Backend is shutting down', 503);
           const current = findChat(state, messageChatId);
           if (current.status === 'running') throw apiError('Chat is already running', 409);
+          assertClaudeChat(current);
           current.messages.push(userMessage, assistant);
           delete current.sync;
           current.status = 'running'; current.updatedAt = now;
@@ -538,7 +674,7 @@ export async function createApp(options = {}) {
             launch: {
               sessionId: current.sessionId,
               title: current.title,
-              model: current.model,
+                model: current.model,
               permissionMode: current.permissionMode,
               cwd: project?.path || cwd,
               nativeImported: Boolean(current.nativeImported),
@@ -554,11 +690,11 @@ export async function createApp(options = {}) {
       const stopChatId = routeId(url.pathname, '/stop');
       if (stopChatId && request.method === 'POST') {
         await body(request);
-        const exists = store.snapshot().chats.some((chat) => chat.id === stopChatId);
-        if (!exists) throw apiError('Chat not found', 404);
+        assertClaudeChat(findChat(store.snapshot(), stopChatId));
         await runner.stop(stopChatId);
         await store.update((state) => {
           const chat = findChat(state, stopChatId);
+          assertClaudeChat(chat);
           chat.status = 'idle';
           chat.updatedAt = new Date().toISOString();
           for (const message of chat.messages) if (message.status === 'streaming') message.status = 'interrupted';
@@ -568,19 +704,21 @@ export async function createApp(options = {}) {
       }
       return json(response, 404, { error: 'Not found' });
     } catch (error) {
+      if (response.destroyed) return;
       if (!response.headersSent) json(response, error.statusCode || 500, { error: error.statusCode ? error.message : 'Internal server error' });
       else response.destroy(error);
     }
   };
   handler.store = store;
   handler.runner = runner;
+  handler.sessionNaming = sessionNaming;
   handler.transcriptSync = transcriptSync;
   handler.close = () => {
     if (closePromise) return closePromise;
     closing = true;
     closePromise = (async () => {
       broadcaster.close();
-      await Promise.all([transcriptSync.close(), runner.stopAll?.()]);
+      await Promise.all([transcriptSync.close(), runner.stopAll?.(), sessionNaming.close?.()]);
       // Run completion resolves before finishRun writes its final message. Wait
       // for that finalization, including launches awaiting native ownership.
       await Promise.allSettled([...activeRuns]);

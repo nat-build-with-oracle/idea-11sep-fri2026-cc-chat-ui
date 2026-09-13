@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process'
+import { createDevEnvironments } from './dev-environment.mjs'
+
+const { backendEnv, clientEnv } = createDevEnvironments()
 const children = [
-  spawn(process.execPath, ['--watch', 'server/index.mjs'], { stdio: 'inherit', env: { ...process.env, DEV_ORIGIN: 'http://127.0.0.1:5173' } }),
-  spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1'], { stdio: 'inherit' }),
+  spawn(process.execPath, ['--watch', 'server/index.mjs'], { stdio: 'inherit', env: backendEnv }),
+  spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1'], { stdio: 'inherit', env: clientEnv }),
 ]
 let stopping = false
 function stop(code = 0) {

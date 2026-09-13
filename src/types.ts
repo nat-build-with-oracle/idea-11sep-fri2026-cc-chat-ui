@@ -14,7 +14,7 @@ export interface Message {
   status?: 'streaming' | 'complete' | 'error' | 'interrupted'; tools?: Tool[]; error?: string;
   usage?: Usage;
 }
-export type Model = 'sonnet' | 'opus' | 'haiku'
+export type Model = string
 export type PermissionMode = 'bypassPermissions' | 'default'
 export interface ChatSync {
   status: 'synced' | 'error'; checkedAt: string;
@@ -22,13 +22,16 @@ export interface ChatSync {
 }
 export interface Chat {
   id: string; title: string; projectId: string | null; sessionId: string | null;
-  model: Model; permissionMode: PermissionMode; createdAt: string; updatedAt: string;
+  model: Model; provider?: string; permissionMode: PermissionMode; createdAt: string; updatedAt: string;
   messages: Message[]; status: 'idle' | 'running';
   sync?: ChatSync;
   nativeImported?: boolean; historyUnavailable?: boolean; historyTruncated?: boolean; historyNextOffset?: number | null;
 }
 export interface AppState { projects: Project[]; chats: Chat[] }
-export interface Health { ok: boolean; allowAnyOrigin?: boolean; claudeAvailable: boolean; claudeVersion: string | null; cwd: string }
+export interface Health { ok: boolean; allowAnyOrigin?: boolean; claudeAvailable: boolean; claudeVersion: string | null; cwd: string; chatModels?: string[]; sessionNaming?: { summaryModels: string[]; namingModel: string } }
+export interface SessionNameTarget { kind: 'chat' | 'native'; id: string }
+export interface SessionNameCandidate { target: SessionNameTarget; title: string }
+export interface SessionNameResult { summary: string; suggestions: string[]; summaryModel: string; namingModel: string; truncated: boolean; messageCount: number }
 
 export type HistoryBlock = { type: 'text'; text: string } | { type: 'tool'; id: string; name: string; input: unknown; status: 'running' | 'complete' } | { type: 'toolResult'; toolUseId: string; content: unknown; isError?: boolean }
 export interface NativeSession {
@@ -36,5 +39,6 @@ export interface NativeSession {
   name: string | null; pid: number | null; startedAt: number | null; updatedAt?: number | null; state: string | null; status: string | null;
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
   existingTerminal?: { sessionName: string; target: string; paneId: string; attachCommand: string };
+  readOnlyReason?: string;
 }
 export interface HistoryPage { messages: Message[]; nextOffset: number | null }
