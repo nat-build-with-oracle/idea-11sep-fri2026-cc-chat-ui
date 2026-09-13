@@ -15,3 +15,15 @@ dist/
 # Tauri/Rust build output
 src-tauri/target/
 src-tauri/gen/
+
+# Local runtime credentials and machine-specific settings (never release these).
+.env
+.env.*
+!.env.example
+/server-config.json
+/vpn-access.json
+/state.json
+*.log
+*.pid
+*.key
+*.pem
