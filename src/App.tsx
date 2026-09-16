@@ -104,6 +104,9 @@ export default function App() {
   const [nativeOffset, setNativeOffset] = useState<number | null>(null)
   const [nativeLoading, setNativeLoading] = useState(false)
   const [nativeListLoading, setNativeListLoading] = useState(false)
+  // Lets the route effect read the loaded sessions without taking them as a
+  // dependency, which would re-run the effect every time the list refreshes.
+  const nativeSessionsRef = useRef<NativeSession[]>([])
   const nativeListRequest = useRef(0)
   const nativeForegroundRefreshes = useRef(0)
   const [nativeError, setNativeError] = useState('')
@@ -234,15 +237,30 @@ export default function App() {
     if (!nativeRouteId || preview) return
     const requestId = navigation.current
     let alive = true
-    setNative(null); setNativeMessages([]); setNativeOffset(null); setNativeLoading(true); setError('')
+    // Swap the thread, do not tear the pane down. Selecting a thread used to blank
+    // the header and then refetch the whole session list — ~200 ms and 7 KB — purely
+    // to find one session by id in a list already held in state. The blank period is
+    // what read as a full reload. When the session is already known, render it at
+    // once and let the history be the only blocking request.
+    const known = nativeSessionsRef.current.find(item => item.sessionId === nativeRouteId)
+    setNative(known ?? null)
+    setNativeMessages([]); setNativeOffset(null); setNativeLoading(true); setError('')
     void (async () => {
       try {
-        const data = await api.nativeSessions()
-        if (!alive || requestId !== navigation.current) return
-        setNativeSessions(data.sessions)
-        const session = data.sessions.find(item => item.sessionId === nativeRouteId)
-        if (!session) throw new Error('This Claude session is no longer available. Go back to Your chats and refresh the list.')
-        setNative(session)
+        if (known) {
+          // Still refresh the list, just off the critical path, so a stale entry
+          // self-heals without making every click wait for it.
+          void api.nativeSessions()
+            .then(data => { if (alive && requestId === navigation.current) setNativeSessions(data.sessions) })
+            .catch(() => {})
+        } else {
+          const data = await api.nativeSessions()
+          if (!alive || requestId !== navigation.current) return
+          setNativeSessions(data.sessions)
+          const session = data.sessions.find(item => item.sessionId === nativeRouteId)
+          if (!session) throw new Error('This Claude session is no longer available. Go back to Your chats and refresh the list.')
+          setNative(session)
+        }
         const page = await api.nativeHistory(nativeRouteId)
         if (!alive || requestId !== navigation.current) return
         setNativeMessages(page.messages); setNativeOffset(page.nextOffset)
@@ -251,6 +269,7 @@ export default function App() {
     })()
     return () => { alive = false }
   }, [route, connectionAttempt])
+  useEffect(() => { nativeSessionsRef.current = nativeSessions }, [nativeSessions])
   useEffect(() => { document.title = `${currentTitle} — ARRA Claude Code` }, [currentTitle])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2600); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
