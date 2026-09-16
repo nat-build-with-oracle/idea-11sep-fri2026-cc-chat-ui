@@ -169,6 +169,17 @@ test('App targets sidebar renames by identity and keeps display aliases out of p
   assert.match(source, /startNativeSessionRefresh\(\{ refresh: refreshNativeQuiet \}\)/)
   assert.match(quietRefresh, /if \(preview \|\| nativeForegroundRefreshes\.current\) return/)
   assert.match(quietRefresh, /requestId === nativeListRequest\.current/)
+  // The quiet poll stays quiet. Following an open session's new messages lives in its
+  // own effect, keyed on the updatedAt this poll refreshes, so the poll itself never
+  // mutates the message list.
+  const followOpen = source.slice(source.indexOf('const openNativeUpdatedAt'), source.indexOf('useEffect(() => { document.title'))
+  assert.match(followOpen, /openNativeUpdatedAt <= nativeSyncedAt\.current/)
+  assert.match(followOpen, /api\.nativeHistory\(nativeRouteId\)/)
+  assert.match(followOpen, /historyRequest\.current\) return/)
+  // Merge, never replace: a reader who paged back through older history must not have
+  // it discarded by a refetch that only asked for the newest page.
+  assert.match(followOpen, /mergeHistoryMessages\(previous, page\.messages\)/)
+  assert.doesNotMatch(followOpen, /setNativeMessages\(page\.messages\)/)
   assert.doesNotMatch(quietRefresh, /setNativeListLoading|setNativeError|navigate|setDraft|setNativeMessages/)
   assert.match(source, /kind === 'attach' && currentSessionId \? void copyExistingTerminal\(currentSessionId\)/)
 })

@@ -107,6 +107,10 @@ export default function App() {
   // Lets the route effect read the loaded sessions without taking them as a
   // dependency, which would re-run the effect every time the list refreshes.
   const nativeSessionsRef = useRef<NativeSession[]>([])
+  // Which native session is on screen, and the updatedAt its messages were loaded
+  // at. The quiet poll compares the two to decide whether a refetch is warranted.
+  const nativeRouteIdRef = useRef<string | null>(null)
+  const nativeSyncedAt = useRef(0)
   const nativeListRequest = useRef(0)
   const nativeForegroundRefreshes = useRef(0)
   const [nativeError, setNativeError] = useState('')
@@ -264,12 +268,44 @@ export default function App() {
         const page = await api.nativeHistory(nativeRouteId)
         if (!alive || requestId !== navigation.current) return
         setNativeMessages(page.messages); setNativeOffset(page.nextOffset)
+        // Watermark this load so the quiet poll only refetches on real movement.
+        nativeSyncedAt.current = nativeSessionsRef.current.find(item => item.sessionId === nativeRouteId)?.updatedAt ?? 0
       } catch (reason) { if (alive && requestId === navigation.current) setError(errorMessage(reason)) }
       finally { if (alive && requestId === navigation.current) setNativeLoading(false) }
     })()
     return () => { alive = false }
   }, [route, connectionAttempt])
   useEffect(() => { nativeSessionsRef.current = nativeSessions }, [nativeSessions])
+  useEffect(() => { nativeRouteIdRef.current = nativeRouteId; if (!nativeRouteId) nativeSyncedAt.current = 0 }, [nativeRouteId])
+  // An open native session is driven from its own terminal, so its transcript moves
+  // while the page watches. The quiet poll refreshes the session list every few
+  // seconds and deliberately touches nothing else, so the messages never followed —
+  // the view sat still, and "Follow latest" did not contradict it because that only
+  // controls auto-scroll.
+  //
+  // updatedAt already rides along in that list, so this refetches only when the
+  // transcript actually moved past what is on screen, rather than on every tick.
+  const openNativeUpdatedAt = nativeRouteId
+    ? nativeSessions.find(item => item.sessionId === nativeRouteId)?.updatedAt ?? 0
+    : 0
+  useEffect(() => {
+    if (!nativeRouteId || preview || nativeLoading) return
+    if (!openNativeUpdatedAt || openNativeUpdatedAt <= nativeSyncedAt.current) return
+    if (historyRequest.current) return // a manual history load owns the list while it runs
+    const navigationId = navigation.current
+    let alive = true
+    void (async () => {
+      try {
+        const page = await api.nativeHistory(nativeRouteId)
+        if (!alive || navigationId !== navigation.current || nativeRouteIdRef.current !== nativeRouteId) return
+        nativeSyncedAt.current = openNativeUpdatedAt
+        // Merge, never replace: this is the newest page, and a reader who paged back
+        // through older ones would otherwise have them silently discarded.
+        setNativeMessages(previous => mergeHistoryMessages(previous, page.messages))
+      } catch { /* a transient failure is not worth surfacing; the next poll retries */ }
+    })()
+    return () => { alive = false }
+  }, [nativeRouteId, openNativeUpdatedAt, nativeLoading])
   useEffect(() => { document.title = `${currentTitle} — ARRA Claude Code` }, [currentTitle])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2600); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
