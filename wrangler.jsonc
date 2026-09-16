@@ -1,6 +1,10 @@
 {
   "name": "cc-chat-ui",
   "compatibility_date": "2026-09-12",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "cc.buildwithoracle.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
