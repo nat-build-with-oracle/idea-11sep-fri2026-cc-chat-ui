@@ -11,6 +11,7 @@ import { TranscriptSync } from './transcript-sync.mjs';
 import { RepositoryService } from './repositories.mjs';
 import { SESSION_NAMING_CAPABILITY, SessionNamingService } from './session-naming.mjs';
 import { JsonStore, validateProjectPath } from './store.mjs';
+import { isEmptyRepositoryPreferences, sanitizeRepositoryPreferences } from './repository-preferences.mjs';
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const CHAT_MODELS = new Set(['sonnet', 'opus', 'haiku']);
@@ -384,6 +385,21 @@ export async function createApp(options = {}) {
       if (request.method === 'GET' && url.pathname === '/api/state') {
         void transcriptSync.tick();
         return json(response, 200, store.snapshot());
+      }
+      if (url.pathname === '/api/repository-preferences' && request.method === 'POST') {
+        const input = await body(request);
+        const unknown = Object.keys(input).filter((key) => !['favorites', 'names', 'threadSorts', 'seedIfEmpty'].includes(key));
+        if (unknown.length) throw apiError(`Unknown repository preference field: ${unknown[0]}`);
+        // seedIfEmpty carries a browser's localStorage set for one-time adoption.
+        // It must never overwrite preferences another browser already saved.
+        const seedOnly = input.seedIfEmpty === true;
+        const preferences = await store.update((state) => {
+          const current = sanitizeRepositoryPreferences(state.repositoryPreferences);
+          if (seedOnly && !isEmptyRepositoryPreferences(current)) return current;
+          state.repositoryPreferences = sanitizeRepositoryPreferences(input);
+          return state.repositoryPreferences;
+        });
+        return json(response, 200, preferences);
       }
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();
