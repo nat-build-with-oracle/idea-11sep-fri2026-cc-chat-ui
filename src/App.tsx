@@ -86,6 +86,7 @@ export default function App() {
   const [repositorySearch, setRepositorySearch] = useState('')
   const [repositoryLimit, setRepositoryLimit] = useState(20)
   const repositoryRequest = useRef(0)
+  const repositorySeeded = useRef(false)
   const [nativeListLoaded, setNativeListLoaded] = useState(preview)
   const [nativeSessions, setNativeSessions] = useState<NativeSession[]>([])
   const [native, setNative] = useState<NativeSession | null>(null)
@@ -156,6 +157,25 @@ export default function App() {
   const nextHistory = view === 'native' ? nativeOffset : chat?.historyNextOffset ?? null
   const importedHistoryPending = Boolean(chat?.nativeImported && nextHistory !== null)
   const latestAssistant = [...messages].reverse().find(message => message.role === 'assistant')
+
+  // Repository preferences live in the store so every browser and every frontend
+  // origin shows one set. A browser that still has localStorage-only preferences
+  // seeds the empty server once, then follows the server from then on.
+  useEffect(() => {
+    if (preview || !loaded) return
+    const server = state.repositoryPreferences
+    const serverEmpty = !server || (!server.favorites?.length && !Object.keys(server.names ?? {}).length && !Object.keys(server.threadSorts ?? {}).length)
+    if (serverEmpty) {
+      if (repositorySeeded.current) return
+      repositorySeeded.current = true
+      const local = stored('repository-preferences', '')
+      if (!local || local === '{}') return
+      void api.saveRepositoryPreferences(JSON.parse(serializeRepositoryPreferences(parseRepositoryPreferences(local))), true).catch(() => { /* Preferences still work locally. */ })
+      return
+    }
+    repositorySeeded.current = true
+    setRepositoryPreferences(parseRepositoryPreferences(JSON.stringify(server)))
+  }, [state.repositoryPreferences, loaded])
 
   useEffect(() => {
     if (preview) return
@@ -572,7 +592,10 @@ export default function App() {
   }
   function saveRepositoryPreferences(next: RepositoryPreferences) {
     if (preview) return
-    setRepositoryPreferences(next); remember('repository-preferences', serializeRepositoryPreferences(next))
+    const serialized = serializeRepositoryPreferences(next)
+    setRepositoryPreferences(next); remember('repository-preferences', serialized)
+    repositorySeeded.current = true
+    void api.saveRepositoryPreferences(JSON.parse(serialized)).catch(() => setToast('Preferences saved in this browser only — the backend rejected the update.'))
   }
   function projectRow(repo: WorkspaceRepository) {
     const preferencePath = repo.path.replace(/\/+$/, '') || '/'

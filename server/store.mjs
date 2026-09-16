@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { emptyRepositoryPreferences, sanitizeRepositoryPreferences } from './repository-preferences.mjs';
 
 const EMPTY_STATE_VERSION = 1;
 
@@ -49,7 +50,9 @@ export class JsonStore {
       const nativeSessionAliases = Array.isArray(parsed.nativeSessionAliases)
         ? parsed.nativeSessionAliases.filter((alias) => alias && typeof alias.sessionId === 'string' && typeof alias.title === 'string')
         : [];
-      this.state = { version: EMPTY_STATE_VERSION, projects: parsed.projects, chats: parsed.chats, nativeSessionAliases };
+      // Absent in states written before repository preferences moved server-side.
+      const repositoryPreferences = sanitizeRepositoryPreferences(parsed.repositoryPreferences);
+      this.state = { version: EMPTY_STATE_VERSION, projects: parsed.projects, chats: parsed.chats, nativeSessionAliases, repositoryPreferences };
       if (interruptedState(this.state)) await this.#write();
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
@@ -59,6 +62,7 @@ export class JsonStore {
         projects: [{ id: randomUUID(), name: path.basename(this.cwd) || this.cwd, path: this.cwd, createdAt }],
         chats: [],
         nativeSessionAliases: [],
+        repositoryPreferences: emptyRepositoryPreferences(),
       };
       await this.#write();
     }
@@ -73,7 +77,12 @@ export class JsonStore {
 
   snapshot() {
     if (!this.state) throw new Error('Store is not initialized');
-    return clone({ projects: this.state.projects, chats: this.state.chats, nativeSessionAliases: this.state.nativeSessionAliases });
+    return clone({
+      projects: this.state.projects,
+      chats: this.state.chats,
+      nativeSessionAliases: this.state.nativeSessionAliases,
+      repositoryPreferences: this.state.repositoryPreferences ?? emptyRepositoryPreferences(),
+    });
   }
 
   summary() {

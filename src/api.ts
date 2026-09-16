@@ -1,5 +1,5 @@
 import { backendApiUrl, backendTarget } from './backend-target.ts'
-import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory, SessionNameTarget, SessionNameResult } from './types'
+import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory, SerializedRepositoryPreferences, SessionNameTarget, SessionNameResult } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const target = backendTarget(window.location.href)
@@ -33,6 +33,8 @@ export const api = {
   importSession: (id: string) => request<Chat>(`/native-sessions/${encodeURIComponent(id)}/import`, 'POST'),
   renameNative: (id: string, title: string) => request<{ session: NativeSession; chat: Chat | null }>(`/native-sessions/${encodeURIComponent(id)}`, 'PATCH', { title }),
   state: () => request<AppState>('/state'),
+  saveRepositoryPreferences: (preferences: SerializedRepositoryPreferences, seedIfEmpty = false) =>
+    request<SerializedRepositoryPreferences>('/repository-preferences', 'POST', { ...preferences, ...(seedIfEmpty ? { seedIfEmpty: true } : {}) }),
   health: () => request<Health>('/health'),
   addProject: (name: string, path: string) => request<Project>('/projects', 'POST', { name, path }),
   createChat: (options: Partial<Pick<Chat, 'title' | 'projectId' | 'model' | 'permissionMode'>>) => request<Chat>('/chats', 'POST', options),

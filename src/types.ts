@@ -27,7 +27,8 @@ export interface Chat {
   sync?: ChatSync;
   nativeImported?: boolean; historyUnavailable?: boolean; historyTruncated?: boolean; historyNextOffset?: number | null;
 }
-export interface AppState { projects: Project[]; chats: Chat[] }
+export interface SerializedRepositoryPreferences { favorites?: string[]; names?: Record<string, string>; threadSorts?: Record<string, 'updated' | 'name'> }
+export interface AppState { projects: Project[]; chats: Chat[]; repositoryPreferences?: SerializedRepositoryPreferences }
 export interface Health { ok: boolean; allowAnyOrigin?: boolean; claudeAvailable: boolean; claudeVersion: string | null; cwd: string; chatModels?: string[]; sessionNaming?: { summaryModels: string[]; namingModel: string } }
 export interface SessionNameTarget { kind: 'chat' | 'native'; id: string }
 export interface SessionNameCandidate { target: SessionNameTarget; title: string }
