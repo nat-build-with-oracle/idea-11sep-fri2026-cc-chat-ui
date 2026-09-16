@@ -58,6 +58,16 @@ function MessageBody({ message }: { message: Message }) {
   return <Markdown content={message.content} />
 }
 
+/**
+ * Say which source the list came from. The label used to hardcode "ghq", which would
+ * now read as a lie whenever projectSource is claude or both.
+ */
+function repositorySourceLabel(inventory: { root: string | null; source?: string }): string {
+  if (inventory.source === 'claude') return 'Claude history · recently worked in'
+  if (inventory.source === 'both') return 'ghq + Claude history'
+  return inventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'
+}
+
 export default function App() {
   const fromRememberedSelection = useRef(!window.location.hash)
   const { route, navigate, version: navigation } = useBrowserRoute(() => initialRoute(preview, stored('selected'), stored('project')))
@@ -634,7 +644,7 @@ export default function App() {
         </>}
       </div>
       <nav className="sidebar-scroll"><section className="projects"><div className="section-label"><span>Projects</span><span className="repository-actions">{!preview && <IconButton icon="refresh" label="Refresh repositories and threads" onClick={() => { void refreshRepositories(); void refreshNative() }} disabled={repositoriesLoading || nativeListLoading} />}<IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></span></div>
-          {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositoryInventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'}</p><input className="repository-filter" aria-label="Search projects and Oracles" placeholder="Search projects and Oracles…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
+          {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositorySourceLabel(repositoryInventory)}</p><input className="repository-filter" aria-label="Search projects and Oracles" placeholder="Search projects and Oracles…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
           {!repositorySearch && favoriteRepositories.length > 0 ? <><h3 className="mt-4 mb-1 flex items-center gap-2 px-2 text-xs font-medium text-[var(--color-muted)]"><Icon name="star" size={12} />Favorites</h3>{favoriteRepositories.map(projectRow)}{recentRepositories.length > 0 && <h3 className="mt-5 mb-1 px-2 text-xs font-medium text-[var(--color-muted)]">Recent repositories</h3>}{recentRepositories.slice(0, repositoryLimit).map(projectRow)}</> : visibleRepositories.map(projectRow)}{!loaded && <div className="skeleton-lines" aria-label="Loading projects"><i /><i /><i /></div>}
           {!repositorySearch && recentRepositories.length > repositoryLimit && <button className="repository-more" onClick={() => setRepositoryLimit(limit => limit + 20)}>Show more repositories ({recentRepositories.length - repositoryLimit})</button>}
           {repositorySearch && !matchingRepositories.length && <p className="sidebar-empty">No visible repositories match.</p>}
