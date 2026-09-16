@@ -12,6 +12,7 @@ import { RepositoryService } from './repositories.mjs';
 import { SESSION_NAMING_CAPABILITY, SessionNamingService } from './session-naming.mjs';
 import { JsonStore, validateProjectPath } from './store.mjs';
 import { isEmptyRepositoryPreferences, sanitizeRepositoryPreferences } from './repository-preferences.mjs';
+import { discoverClaudeProjects } from './claude-projects.mjs';
 
 const MIME = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const CHAT_MODELS = new Set(['sonnet', 'opus', 'haiku']);
@@ -226,6 +227,50 @@ export async function createApp(options = {}) {
   const runner = options.runner || new ClaudeRunner(options.runnerOptions);
   const nativeSessions = options.nativeSessions || new NativeSessionService(options.nativeSessionOptions);
   const repositories = options.repositories || new RepositoryService(options.repositoryOptions);
+  const claudeProjects = options.claudeProjects || discoverClaudeProjects;
+
+  const basename = (value) => value.split('/').filter(Boolean).pop() || value;
+
+  /**
+   * The project list, honouring the stored projectSource.
+   *
+   * 'ghq' short-circuits before any history scan, so the default path costs exactly
+   * what it cost before this setting existed. A repo present in both sources keeps its
+   * ghq record — that record carries the fields the sidebar already renders — and only
+   * gains the history counts.
+   */
+  async function listRepositories() {
+    const preferences = sanitizeRepositoryPreferences(store.snapshot().repositoryPreferences);
+    const source = preferences.projectSource;
+    if (source === 'ghq') return repositories.list();
+
+    const [ghq, history] = await Promise.all([
+      repositories.list(),
+      claudeProjects({ includeMissing: preferences.includeMissingProjects }),
+    ]);
+    const byPath = new Map((ghq.repositories ?? []).map((repo) => [repo.path, repo]));
+    const counts = new Map(history.projects.map((project) => [project.path, project]));
+
+    const fromHistory = (project) => ({
+      ...(byPath.get(project.path) ?? { path: project.path, name: basename(project.path) }),
+      sessions: project.sessions,
+      lastActivity: project.lastActivity,
+      ...(project.missing ? { missing: true } : {}),
+    });
+
+    if (source === 'claude') {
+      return { root: ghq.root, claudeRoot: history.root, source, repositories: history.projects.map(fromHistory) };
+    }
+
+    const merged = (ghq.repositories ?? []).map((repo) => {
+      const hit = counts.get(repo.path);
+      return hit ? { ...repo, sessions: hit.sessions, lastActivity: hit.lastActivity } : repo;
+    });
+    for (const project of history.projects) {
+      if (!byPath.has(project.path)) merged.push(fromHistory(project));
+    }
+    return { root: ghq.root, claudeRoot: history.root, source, repositories: merged };
+  }
   const sessionNaming = options.sessionNaming || new SessionNamingService({
     ...options.sessionNamingOptions,
     generateFn: options.sessionNameGenerator,
@@ -388,7 +433,7 @@ export async function createApp(options = {}) {
       }
       if (url.pathname === '/api/repository-preferences' && request.method === 'POST') {
         const input = await body(request);
-        const unknown = Object.keys(input).filter((key) => !['favorites', 'names', 'threadSorts', 'seedIfEmpty'].includes(key));
+        const unknown = Object.keys(input).filter((key) => !['favorites', 'names', 'threadSorts', 'seedIfEmpty', 'projectSource', 'includeMissingProjects'].includes(key));
         if (unknown.length) throw apiError(`Unknown repository preference field: ${unknown[0]}`);
         // seedIfEmpty carries a browser's localStorage set for one-time adoption.
         // It must never overwrite preferences another browser already saved.
@@ -411,7 +456,9 @@ export async function createApp(options = {}) {
           frontendOrigin, allowAnyOrigin,
         });
       }
-      if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
+      if (request.method === 'GET' && url.pathname === '/api/repositories') {
+        return json(response, 200, await listRepositories());
+      }
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {
         return json(response, 200, { sessions: await listedNativeSessions() });
       }

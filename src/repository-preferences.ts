@@ -4,7 +4,15 @@ export interface RepositoryPreferences {
   favorites: Set<string>
   names: Map<string, string>
   threadSorts: Map<string, RepositoryThreadSort>
+  projectSource: ProjectSource
+  includeMissingProjects: boolean
 }
+
+/** Mirrors PROJECT_SOURCES in server/repository-preferences.mjs. */
+export type ProjectSource = 'ghq' | 'claude' | 'both'
+export const PROJECT_SOURCES: readonly ProjectSource[] = ['ghq', 'claude', 'both']
+const isProjectSource = (value: unknown): value is ProjectSource =>
+  PROJECT_SOURCES.includes(value as ProjectSource)
 
 export type RepositoryThreadSort = 'updated' | 'name'
 
@@ -23,7 +31,7 @@ function repositoryName(value: unknown): string | null {
 }
 
 export function parseRepositoryPreferences(raw: string): RepositoryPreferences {
-  const empty = (): RepositoryPreferences => ({ favorites: new Set(), names: new Map(), threadSorts: new Map() })
+  const empty = (): RepositoryPreferences => ({ favorites: new Set(), names: new Map(), threadSorts: new Map(), projectSource: 'ghq', includeMissingProjects: false })
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty()
@@ -50,7 +58,11 @@ export function parseRepositoryPreferences(raw: string): RepositoryPreferences {
         if (path && (value === 'updated' || value === 'name')) threadSorts.set(path, value)
       }
     }
-    return { favorites, names, threadSorts }
+    return {
+      favorites, names, threadSorts,
+      projectSource: isProjectSource(record.projectSource) ? record.projectSource : 'ghq',
+      includeMissingProjects: typeof record.includeMissingProjects === 'boolean' ? record.includeMissingProjects : false,
+    }
   } catch {
     return empty()
   }
@@ -72,7 +84,14 @@ export function serializeRepositoryPreferences(preferences: RepositoryPreference
     const path = repositoryPath(rawPath)
     if (path && (sort === 'updated' || sort === 'name')) threadSorts[path] = sort
   }
-  return JSON.stringify({ favorites: [...new Set(favorites)], names, ...(Object.keys(threadSorts).length ? { threadSorts } : {}) })
+  return JSON.stringify({
+    favorites: [...new Set(favorites)], names,
+    ...(Object.keys(threadSorts).length ? { threadSorts } : {}),
+    // Emitted only when non-default, so an untouched preference set serializes to
+    // exactly the JSON it produced before this setting existed.
+    ...(preferences.projectSource && preferences.projectSource !== 'ghq' ? { projectSource: preferences.projectSource } : {}),
+    ...(preferences.includeMissingProjects ? { includeMissingProjects: true } : {}),
+  })
 }
 
 export function setRepositoryFavorite(preferences: RepositoryPreferences, rawPath: string, value: boolean): RepositoryPreferences {
@@ -82,7 +101,7 @@ export function setRepositoryFavorite(preferences: RepositoryPreferences, rawPat
     if (value) favorites.add(path)
     else favorites.delete(path)
   }
-  return { favorites, names: new Map(preferences.names), threadSorts: new Map(preferences.threadSorts ?? []) }
+  return { ...preferences, favorites, names: new Map(preferences.names), threadSorts: new Map(preferences.threadSorts ?? []) }
 }
 
 export function setRepositoryName(preferences: RepositoryPreferences, rawPath: string, rawLabel: string): RepositoryPreferences {
@@ -95,14 +114,19 @@ export function setRepositoryName(preferences: RepositoryPreferences, rawPath: s
       if (label) names.set(path, label)
     }
   }
-  return { favorites: new Set(preferences.favorites), names, threadSorts: new Map(preferences.threadSorts ?? []) }
+  return { ...preferences, favorites: new Set(preferences.favorites), names, threadSorts: new Map(preferences.threadSorts ?? []) }
 }
 
 export function setRepositoryThreadSort(preferences: RepositoryPreferences, rawPath: string, sort: RepositoryThreadSort): RepositoryPreferences {
   const threadSorts = new Map(preferences.threadSorts)
   const path = repositoryPath(rawPath)
   if (path && (sort === 'updated' || sort === 'name')) threadSorts.set(path, sort)
-  return { favorites: new Set(preferences.favorites), names: new Map(preferences.names), threadSorts }
+  return { ...preferences, favorites: new Set(preferences.favorites), names: new Map(preferences.names), threadSorts }
+}
+
+export function setProjectSource(preferences: RepositoryPreferences, source: ProjectSource): RepositoryPreferences {
+  if (!isProjectSource(source)) return preferences
+  return { ...preferences, favorites: new Set(preferences.favorites), names: new Map(preferences.names), threadSorts: new Map(preferences.threadSorts ?? []), projectSource: source }
 }
 
 export function applyRepositoryPreferences(rows: readonly WorkspaceRepository[], preferences: RepositoryPreferences): WorkspaceRepository[] {
