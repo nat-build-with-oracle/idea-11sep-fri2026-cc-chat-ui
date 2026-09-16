@@ -4,7 +4,12 @@ import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, Repos
 export async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const target = backendTarget(window.location.href)
   const options: RequestInit = {
-    credentials: 'omit',
+    // 'same-origin', not 'omit': when the UI is served by the backend itself the
+    // request is same-origin and must carry the session cookie, which is how the
+    // VPN proxy authenticates every call after /_vpn/unlock. A cross-origin
+    // backend (hosted frontend + ?host=...) still sends nothing, exactly as
+    // 'omit' did, so remote-backend deployments are unchanged.
+    credentials: 'same-origin',
     redirect: 'error',
     method,
     ...(signal ? { signal } : {}),

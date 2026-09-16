@@ -15,7 +15,7 @@ test('REST and SSE use the selected backend without version-sensitive address-sp
   }
   assert.deepEqual(await request('/health'),{ok:true})
   assert.equal(invocation.url,'http://127.0.0.1:4318/api/health')
-  assert.equal(invocation.options.credentials,'omit')
+  assert.equal(invocation.options.credentials,'same-origin')
   assert.equal(invocation.options.redirect,'error')
   assert.equal('targetAddressSpace' in invocation.options,false)
   const sources=[]
@@ -27,6 +27,25 @@ test('REST and SSE use the selected backend without version-sensitive address-sp
   const close=subscribe(()=>{},()=>{})
   assert.equal(sources[0].url,'http://127.0.0.1:4318/api/events')
   close();assert.equal(sources[0].closed,true)
+})
+
+test('a backend that serves its own UI gets the session cookie', async t => {
+  // The VPN proxy authenticates every /api call with an HttpOnly cookie it set at
+  // /_vpn/unlock, and it redirects the app page to ?host=<its own origin>. That
+  // makes the backend same-origin, so the request must carry credentials —
+  // 'omit' produced a rendered shell whose every API call came back 401
+  // "VPN access is locked".
+  const original={window:globalThis.window,fetch:globalThis.fetch}
+  t.after(()=>Object.assign(globalThis,original))
+  globalThis.window={location:{href:'http://white.oracle.netbird:4318/?host=http://white.oracle.netbird:4318'}}
+  let invocation
+  globalThis.fetch=async(url,options)=>{
+    invocation={url,options}
+    return new Response('{"ok":true}',{headers:{'content-type':'application/json'}})
+  }
+  assert.deepEqual(await request('/health'),{ok:true})
+  assert.equal(invocation.url,'/api/health')
+  assert.equal(invocation.options.credentials,'same-origin')
 })
 
 test('connection errors retain the browser reason instead of masking it', async t=>{
