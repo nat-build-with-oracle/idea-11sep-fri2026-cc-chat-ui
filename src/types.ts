@@ -1,5 +1,5 @@
 export interface Repository { id: string; name: string; path: string; modifiedAt: number }
-export interface RepositoryInventory { root: string | null; repositories: Repository[]; warning?: string }
+export interface RepositoryInventory { root: string | null; repositories: Repository[]; warning?: string; source?: 'ghq' | 'claude' | 'both'; claudeRoot?: string | null }
 export interface Project { id: string; name: string; path: string; canonicalPath?: string; createdAt: string }
 export interface Tool { id: string; name: string; input: unknown; status: 'running' | 'complete' }
 export interface Usage {

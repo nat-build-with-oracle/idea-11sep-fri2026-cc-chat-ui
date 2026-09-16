@@ -26,8 +26,13 @@ export function repositoryName(value) {
   return trimmed && trimmed.length <= MAX_NAME_LENGTH && !hasControls(trimmed) ? trimmed : null;
 }
 
+// Where the project list comes from. 'ghq' is the default because it is exactly the
+// behaviour that existed before this setting, so an absent or corrupt value restores
+// it rather than silently changing what the sidebar shows.
+export const PROJECT_SOURCES = ['ghq', 'claude', 'both'];
+
 export function emptyRepositoryPreferences() {
-  return { favorites: [], names: {}, threadSorts: {} };
+  return { favorites: [], names: {}, threadSorts: {}, projectSource: 'ghq', includeMissingProjects: false };
 }
 
 /** Normalize any untrusted payload into the stored shape. Never throws. */
@@ -59,6 +64,9 @@ export function sanitizeRepositoryPreferences(input) {
     }
   }
 
+  if (PROJECT_SOURCES.includes(input.projectSource)) result.projectSource = input.projectSource;
+  if (typeof input.includeMissingProjects === 'boolean') result.includeMissingProjects = input.includeMissingProjects;
+
   return result;
 }
 
@@ -67,5 +75,9 @@ export function isEmptyRepositoryPreferences(preferences) {
   const value = sanitizeRepositoryPreferences(preferences);
   return value.favorites.length === 0
     && Object.keys(value.names).length === 0
-    && Object.keys(value.threadSorts).length === 0;
+    && Object.keys(value.threadSorts).length === 0
+    // A chosen source is a real preference. Without these two the set would still
+    // look empty, and a client would seed over it from localStorage.
+    && value.projectSource === 'ghq'
+    && value.includeMissingProjects === false;
 }

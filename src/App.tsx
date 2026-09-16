@@ -58,6 +58,16 @@ function MessageBody({ message }: { message: Message }) {
   return <Markdown content={message.content} />
 }
 
+/**
+ * Say which source the list came from. The label used to hardcode "ghq", which would
+ * now read as a lie whenever projectSource is claude or both.
+ */
+function repositorySourceLabel(inventory: { root: string | null; source?: string }): string {
+  if (inventory.source === 'claude') return 'Claude history · recently worked in'
+  if (inventory.source === 'both') return 'ghq + Claude history'
+  return inventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'
+}
+
 export default function App() {
   const fromRememberedSelection = useRef(!window.location.hash)
   const { route, navigate, version: navigation } = useBrowserRoute(() => initialRoute(preview, stored('selected'), stored('project')))
@@ -94,6 +104,13 @@ export default function App() {
   const [nativeOffset, setNativeOffset] = useState<number | null>(null)
   const [nativeLoading, setNativeLoading] = useState(false)
   const [nativeListLoading, setNativeListLoading] = useState(false)
+  // Lets the route effect read the loaded sessions without taking them as a
+  // dependency, which would re-run the effect every time the list refreshes.
+  const nativeSessionsRef = useRef<NativeSession[]>([])
+  // Which native session is on screen, and the updatedAt its messages were loaded
+  // at. The quiet poll compares the two to decide whether a refetch is warranted.
+  const nativeRouteIdRef = useRef<string | null>(null)
+  const nativeSyncedAt = useRef(0)
   const nativeListRequest = useRef(0)
   const nativeForegroundRefreshes = useRef(0)
   const [nativeError, setNativeError] = useState('')
@@ -224,23 +241,71 @@ export default function App() {
     if (!nativeRouteId || preview) return
     const requestId = navigation.current
     let alive = true
-    setNative(null); setNativeMessages([]); setNativeOffset(null); setNativeLoading(true); setError('')
+    // Swap the thread, do not tear the pane down. Selecting a thread used to blank
+    // the header and then refetch the whole session list — ~200 ms and 7 KB — purely
+    // to find one session by id in a list already held in state. The blank period is
+    // what read as a full reload. When the session is already known, render it at
+    // once and let the history be the only blocking request.
+    const known = nativeSessionsRef.current.find(item => item.sessionId === nativeRouteId)
+    setNative(known ?? null)
+    setNativeMessages([]); setNativeOffset(null); setNativeLoading(true); setError('')
     void (async () => {
       try {
-        const data = await api.nativeSessions()
-        if (!alive || requestId !== navigation.current) return
-        setNativeSessions(data.sessions)
-        const session = data.sessions.find(item => item.sessionId === nativeRouteId)
-        if (!session) throw new Error('This Claude session is no longer available. Go back to Your chats and refresh the list.')
-        setNative(session)
+        if (known) {
+          // Still refresh the list, just off the critical path, so a stale entry
+          // self-heals without making every click wait for it.
+          void api.nativeSessions()
+            .then(data => { if (alive && requestId === navigation.current) setNativeSessions(data.sessions) })
+            .catch(() => {})
+        } else {
+          const data = await api.nativeSessions()
+          if (!alive || requestId !== navigation.current) return
+          setNativeSessions(data.sessions)
+          const session = data.sessions.find(item => item.sessionId === nativeRouteId)
+          if (!session) throw new Error('This Claude session is no longer available. Go back to Your chats and refresh the list.')
+          setNative(session)
+        }
         const page = await api.nativeHistory(nativeRouteId)
         if (!alive || requestId !== navigation.current) return
         setNativeMessages(page.messages); setNativeOffset(page.nextOffset)
+        // Watermark this load so the quiet poll only refetches on real movement.
+        nativeSyncedAt.current = nativeSessionsRef.current.find(item => item.sessionId === nativeRouteId)?.updatedAt ?? 0
       } catch (reason) { if (alive && requestId === navigation.current) setError(errorMessage(reason)) }
       finally { if (alive && requestId === navigation.current) setNativeLoading(false) }
     })()
     return () => { alive = false }
   }, [route, connectionAttempt])
+  useEffect(() => { nativeSessionsRef.current = nativeSessions }, [nativeSessions])
+  useEffect(() => { nativeRouteIdRef.current = nativeRouteId; if (!nativeRouteId) nativeSyncedAt.current = 0 }, [nativeRouteId])
+  // An open native session is driven from its own terminal, so its transcript moves
+  // while the page watches. The quiet poll refreshes the session list every few
+  // seconds and deliberately touches nothing else, so the messages never followed —
+  // the view sat still, and "Follow latest" did not contradict it because that only
+  // controls auto-scroll.
+  //
+  // updatedAt already rides along in that list, so this refetches only when the
+  // transcript actually moved past what is on screen, rather than on every tick.
+  const openNativeUpdatedAt = nativeRouteId
+    ? nativeSessions.find(item => item.sessionId === nativeRouteId)?.updatedAt ?? 0
+    : 0
+  useEffect(() => {
+    if (!nativeRouteId || preview || nativeLoading) return
+    if (!openNativeUpdatedAt || openNativeUpdatedAt <= nativeSyncedAt.current) return
+    if (historyRequest.current) return // a manual history load owns the list while it runs
+    const navigationId = navigation.current
+    let alive = true
+    void (async () => {
+      try {
+        const page = await api.nativeHistory(nativeRouteId)
+        if (!alive || navigationId !== navigation.current || nativeRouteIdRef.current !== nativeRouteId) return
+        nativeSyncedAt.current = openNativeUpdatedAt
+        // Merge, never replace: this is the newest page, and a reader who paged back
+        // through older ones would otherwise have them silently discarded.
+        setNativeMessages(previous => mergeHistoryMessages(previous, page.messages))
+      } catch { /* a transient failure is not worth surfacing; the next poll retries */ }
+    })()
+    return () => { alive = false }
+  }, [nativeRouteId, openNativeUpdatedAt, nativeLoading])
   useEffect(() => { document.title = `${currentTitle} — ARRA Claude Code` }, [currentTitle])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2600); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
@@ -634,7 +699,7 @@ export default function App() {
         </>}
       </div>
       <nav className="sidebar-scroll"><section className="projects"><div className="section-label"><span>Projects</span><span className="repository-actions">{!preview && <IconButton icon="refresh" label="Refresh repositories and threads" onClick={() => { void refreshRepositories(); void refreshNative() }} disabled={repositoriesLoading || nativeListLoading} />}<IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></span></div>
-          {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositoryInventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'}</p><input className="repository-filter" aria-label="Search projects and Oracles" placeholder="Search projects and Oracles…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
+          {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositorySourceLabel(repositoryInventory)}</p><input className="repository-filter" aria-label="Search projects and Oracles" placeholder="Search projects and Oracles…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
           {!repositorySearch && favoriteRepositories.length > 0 ? <><h3 className="mt-4 mb-1 flex items-center gap-2 px-2 text-xs font-medium text-[var(--color-muted)]"><Icon name="star" size={12} />Favorites</h3>{favoriteRepositories.map(projectRow)}{recentRepositories.length > 0 && <h3 className="mt-5 mb-1 px-2 text-xs font-medium text-[var(--color-muted)]">Recent repositories</h3>}{recentRepositories.slice(0, repositoryLimit).map(projectRow)}</> : visibleRepositories.map(projectRow)}{!loaded && <div className="skeleton-lines" aria-label="Loading projects"><i /><i /><i /></div>}
           {!repositorySearch && recentRepositories.length > repositoryLimit && <button className="repository-more" onClick={() => setRepositoryLimit(limit => limit + 20)}>Show more repositories ({recentRepositories.length - repositoryLimit})</button>}
           {repositorySearch && !matchingRepositories.length && <p className="sidebar-empty">No visible repositories match.</p>}
