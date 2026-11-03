@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon } from './Icon'
 import {
-  branchHint, chatForWorkspace, countTones, countsLabel, fleetCounts, focusSpaces, groupIsOpen, hasActivity,
-  spaceHasSession, tiers, toneLabel, toneOf, withFull, withGroup, withQuiet,
+  branchHint, chatForWorkspace, countTones, countsLabel, filterGroups, filterTerms, fleetCounts, focusSpaces, groupIsOpen,
+  hasActivity, spaceHasSession, tiers, toneLabel, toneOf, withFilter, withFull, withGroup, withQuiet,
   type HerdrCounts, type HerdrTone, type HerdrTreeState,
 } from './herdr-tree'
 import type { HerdrTreeGroup, HerdrTreeWorkspace, NativeSession } from './types'
@@ -51,13 +51,13 @@ function Space({ group, workspace, child, current, chat, onOpen, onCopy }: Space
   </button>
 }
 
-interface GroupProps { group: HerdrTreeGroup; open: boolean; onToggle: () => void; full: boolean; onFull: (full: boolean) => void; nativeSessions: NativeSession[]; currentSessionId?: string | null; onOpen: Props['onOpen']; onCopy: Props['onCopy'] }
+interface GroupProps { group: HerdrTreeGroup; open: boolean; onToggle: () => void; full: boolean; canFocus: boolean; onFull: (full: boolean) => void; nativeSessions: NativeSession[]; currentSessionId?: string | null; onOpen: Props['onOpen']; onCopy: Props['onCopy'] }
 
-function Group({ group, open, onToggle, full, onFull, nativeSessions, currentSessionId, onOpen, onCopy }: GroupProps) {
+function Group({ group, open, onToggle, full, canFocus, onFull, nativeSessions, currentSessionId, onOpen, onCopy }: GroupProps) {
   const counts = countTones(group.workspaces)
   const spaces = group.workspaces.length
   const focus = focusSpaces(group, currentSessionId, full)
-  const focusable = full && focusSpaces(group, currentSessionId, false).hidden > 0
+  const focusable = canFocus && full && focusSpaces(group, currentSessionId, false).hidden > 0
   const space = (workspace: HerdrTreeWorkspace, child = false) => <Space key={workspace.id} group={group} workspace={workspace} child={child}
     current={spaceHasSession(workspace, currentSessionId)} chat={chatForWorkspace(group, workspace, nativeSessions)} onOpen={onOpen} onCopy={onCopy} />
   return <div className={`herdr-group${group.reachable ? '' : ' is-offline'}`}>
@@ -97,8 +97,12 @@ export default function HerdrTree({ nativeSessions, open, onToggleSection, state
     const timer = window.setInterval(() => void load(), 15_000)
     return () => window.clearInterval(timer)
   }, [open, load])
-  const fleet = groups ? fleetCounts(groups) : null
-  const offlineNames = groups?.filter(group => !group.reachable).map(group => group.label).join(', ')
+  const terms = filterTerms(state.filter)
+  const filtering = terms.length > 0
+  const view = groups ? filterGroups(groups, terms) : null
+  const fleet = view ? fleetCounts(view) : null
+  const offlineNames = view?.filter(group => !group.reachable).map(group => group.label).join(', ')
+  const setFilter = (text: string) => onState(withFilter(state, text))
   return <section className="herdr" aria-label="herdr sessions and machines">
     <div className="section-label herdr-head">
       <button className="herdr-head-toggle" aria-expanded={open} onClick={onToggleSection} title={open ? 'Hide herdr' : 'Show herdr'}>
@@ -110,16 +114,23 @@ export default function HerdrTree({ nativeSessions, open, onToggleSection, state
         {!hasActivity(fleet) && !fleet.offline && <span className="herdr-quiet">All quiet</span>}
       </span>}
     </div>
+    {open && groups && groups.length > 0 && <div className="herdr-filter-box">
+      <input className="repository-filter" value={state.filter} onChange={event => setFilter(event.target.value)}
+        onKeyDown={event => { if (event.key === 'Escape' && state.filter) { event.preventDefault(); setFilter('') } }}
+        placeholder="Filter: laris-co, nsm…" aria-label="Filter herdr sessions, machines and spaces" spellCheck={false} autoCapitalize="off" autoComplete="off" />
+      {state.filter && <button className="herdr-filter-clear" aria-label="Clear the herdr filter" title="Clear (Esc)" onClick={() => setFilter('')}><Icon name="close" size={14} /></button>}
+    </div>}
     {open && (!groups ? (error
       ? <p className="sidebar-empty" role="alert">herdr is not answering.<button onClick={() => void load()}>Try again <Icon name="refresh" size={12} /></button></p>
       : <div className="skeleton-lines herdr-skeleton" aria-label="Loading herdr"><i /><i /><i /></div>)
       : !groups.length ? <p className="sidebar-empty">No herdr sessions are running.</p>
-      : tiers(groups, state, currentSessionId).map(tier => <div className="herdr-tier" key={tier.kind}>
+      : filtering && !view!.length ? <p className="sidebar-empty">No session, machine or space matches “{state.filter.trim()}”.<button onClick={() => setFilter('')}>Clear the filter</button></p>
+      : tiers(view!, state, currentSessionId, filtering).map(tier => <div className="herdr-tier" key={tier.kind}>
         <h3 className="herdr-tier-label">{tierName[tier.kind]}</h3>
         {tier.shown.map(group => {
-          const isOpen = groupIsOpen(state, group, currentSessionId)
+          const isOpen = groupIsOpen(state, group, currentSessionId, filtering)
           return <Group key={group.id} group={group} open={isOpen} onToggle={() => onState(withGroup(state, group.id, !isOpen))}
-            full={state.full[group.id] === true} onFull={full => onState(withFull(state, group.id, full))}
+            full={filtering || state.full[group.id] === true} canFocus={!filtering} onFull={full => onState(withFull(state, group.id, full))}
             nativeSessions={nativeSessions} currentSessionId={currentSessionId} onOpen={onOpen} onCopy={onCopy} />
         })}
         {tier.hidden > 0 && <button className="repository-more herdr-more" onClick={() => onState(withQuiet(state, tier.kind, true))}>

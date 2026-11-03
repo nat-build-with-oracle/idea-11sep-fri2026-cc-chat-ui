@@ -94,7 +94,8 @@ export function parseTreeAgents(output) {
 }
 
 export function assembleGroup(spec, workspaceOutput, agentOutput, branchByPath) {
-  const base = { id: spec.id, label: spec.label, kind: spec.kind, command: spec.command };
+  // `session` is the herdr session the group shows: its own name locally, the machine's saved session remotely.
+  const base = { id: spec.id, label: spec.label, kind: spec.kind, session: spec.session ?? null, command: spec.command };
   const workspaces = parseWorkspaces(workspaceOutput);
   if (!workspaces) return { ...base, reachable: false, workspaces: [] };
   const agents = parseTreeAgents(agentOutput);
@@ -168,15 +169,15 @@ export function createHerdrTree({ run = runHerdr, ttlMs = 10_000, timeoutMs = 4_
       run(['machine', 'list'], timeoutMs),
     ]);
     const specs = [
-      ...parseRunningSessions(sessionOutput).map((name) => ({ id: `session:${name}`, label: name, kind: 'local', args: ['--session', name], command: `herdr --session ${name}` })),
-      ...parseMachines(machineOutput).map((machine) => ({ id: `machine:${machine.name}`, label: machine.name, kind: 'machine', args: ['--machine', machine.name], command: `herdr --machine ${machine.name}` })),
+      ...parseRunningSessions(sessionOutput).map((name) => ({ id: `session:${name}`, label: name, kind: 'local', session: name, args: ['--session', name], command: `herdr --session ${name}` })),
+      ...parseMachines(machineOutput).map((machine) => ({ id: `machine:${machine.name}`, label: machine.name, kind: 'machine', session: machine.session || null, args: ['--machine', machine.name], command: `herdr --machine ${machine.name}` })),
     ];
     const groups = new Array(specs.length);
     let next = 0;
     async function worker() {
       while (next < specs.length) {
         const index = next++;
-        groups[index] = await loadGroup(specs[index]).catch(() => ({ id: specs[index].id, label: specs[index].label, kind: specs[index].kind, command: specs[index].command, reachable: false, workspaces: [] }));
+        groups[index] = await loadGroup(specs[index]).catch(() => ({ id: specs[index].id, label: specs[index].label, kind: specs[index].kind, session: specs[index].session ?? null, command: specs[index].command, reachable: false, workspaces: [] }));
       }
     }
     await Promise.all(Array.from({ length: Math.min(6, specs.length) }, worker));
