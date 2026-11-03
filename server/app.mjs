@@ -215,6 +215,9 @@ async function serveSpa(request, response, distDir) {
 }
 
 export async function createApp(options = {}) {
+  // CC_CHAT_HERDR_FOLLOW="arraxccdc nsm": the herdr sessions a fresh sidebar follows (names or group ids).
+  const herdrFollow = String(options.herdrFollow ?? process.env.CC_CHAT_HERDR_FOLLOW ?? '').split(/[\s,]+/)
+    .filter((name) => /^[A-Za-z0-9:._-]{1,200}$/.test(name)).slice(0, 20);
   const frontendOrigin = configuredFrontendOrigin(options.frontendOrigin ?? process.env.CC_CHAT_FRONTEND_ORIGIN ?? '');
   const allowAnyOrigin = options.allowAnyOrigin === undefined
     ? process.env.CC_CHAT_ALLOW_ANY_ORIGIN === '1'
@@ -409,7 +412,7 @@ export async function createApp(options = {}) {
       }
       if (request.method === 'GET' && url.pathname === '/api/health') {
         const health = await runner.health();
-        return json(response, 200, { ok: true, ...health, cwd, chatModels: [...CHAT_MODELS], sessionNaming: SESSION_NAMING_CAPABILITY, ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
+        return json(response, 200, { ok: true, ...health, cwd, chatModels: [...CHAT_MODELS], sessionNaming: SESSION_NAMING_CAPABILITY, ...(herdrFollow.length ? { herdrFollow } : {}), ...(allowAnyOrigin ? { allowAnyOrigin: true } : {}) });
       }
       if (request.method === 'GET' && url.pathname === '/api/status') {
         return json(response, 200, {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Icon } from '../Icon'
 import {
   fleetCounts, focusedGroups, focusFromFilter, focusSuggestions, groupIsOpen, groupTone, hasActivity, missingFocus,
-  toggleFocus, withFocus, withGroup, type HerdrTreeState,
+  resolveFollow, toggleFocus, withFocus, withGroup, type HerdrTreeState,
 } from '../herdr-tree'
 import type { NativeSession } from '../types'
 import { FollowChip, OutlineChip, SuggestChip } from './HerdrChip'
@@ -19,6 +19,8 @@ interface Props {
   state: HerdrTreeState
   onState: (next: HerdrTreeState) => void
   currentSessionId?: string | null
+  // The deployment's default follow list (CC_CHAT_HERDR_FOLLOW), used until the first choice is made.
+  defaultFollow?: string[]
   onOpen: (item: NativeSession) => void
   onCopy: (text: string, label: string) => void
 }
@@ -26,13 +28,15 @@ interface Props {
 const idLabel = (id: string) => id.replace(/^(session|machine):/, '')
 
 // herdr inside our sidebar: only the sessions you follow; the whole fleet is summed up in the head.
-export default function HerdrSidebar({ nativeSessions, open, onToggleSection, state, onState, currentSessionId, onOpen, onCopy }: Props) {
+export default function HerdrSidebar({ nativeSessions, open, onToggleSection, state, onState, currentSessionId, defaultFollow, onOpen, onCopy }: Props) {
   const { groups, error, reload } = useHerdrTree(open)
   const [picking, setPicking] = useState(false)
-  // A filter typed before the picker existed becomes the first choice.
+  // Until the first choice: a filter typed before the picker existed, else the deployment's default follow list.
   useEffect(() => {
-    if (groups && state.focus === null && state.filter.trim()) onState({ ...withFocus(state, focusFromFilter(groups, state.filter)), filter: '' })
-  }, [groups, state, onState])
+    if (!groups || state.focus !== null) return
+    if (state.filter.trim()) onState({ ...withFocus(state, focusFromFilter(groups, state.filter)), filter: '' })
+    else if (defaultFollow?.length) onState(withFocus(state, resolveFollow(groups, defaultFollow)))
+  }, [groups, state, onState, defaultFollow])
   const fleet = groups ? fleetCounts(groups) : null
   const offline = groups?.filter(group => !group.reachable).map(group => group.label).join(', ')
   const focus = state.focus ?? []

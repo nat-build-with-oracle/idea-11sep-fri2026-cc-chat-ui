@@ -618,7 +618,7 @@ export function renderVpnLockPage({ nonce, authenticated = false, noAuth = false
         </section>
       </main>
 
-      <footer>Private access · This Mac · NetBird VPN</footer>
+      <footer>Private access · tailscale</footer>
     </div>
     ${script ? `<script nonce="${safeNonce}">${script}</script>` : ''}
   </body>

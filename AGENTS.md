@@ -26,7 +26,7 @@
 
 ## Remote access compatibility
 
-- Preserve support for authenticated remote backends beyond NetBird; the frontend's remote backend URL support is not VPN-only.
+- Preserve support for authenticated remote backends beyond the tailnet; the frontend's remote backend URL support is not VPN-only.
 - Keep the trusted-VPN `NO_AUTH` shortcut scoped to the VPN. Require authentication for broader remote exposure.
 
 ## Project origin

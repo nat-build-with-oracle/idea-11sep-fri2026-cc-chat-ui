@@ -37,7 +37,7 @@ test('a backend that serves its own UI gets the session cookie', async t => {
   // "VPN access is locked".
   const original={window:globalThis.window,fetch:globalThis.fetch}
   t.after(()=>Object.assign(globalThis,original))
-  globalThis.window={location:{href:'http://white.oracle.netbird:4318/?host=http://white.oracle.netbird:4318'}}
+  globalThis.window={location:{href:'http://white.example.ts.net:4318/?host=http://white.example.ts.net:4318'}}
   let invocation
   globalThis.fetch=async(url,options)=>{
     invocation={url,options}

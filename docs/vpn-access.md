@@ -1,8 +1,8 @@
 # Private VPN access
 
-ARRA Claude Code keeps its normal backend on loopback and adds a second listener bound to this Mac's exact NetBird IPv4 address. It does not bind the app to every network interface.
+ARRA Claude Code keeps its normal backend on loopback and adds a second listener bound to this machine's exact tailscale IPv4 address (100.x). It does not bind the app to every network interface.
 
-The configured NetBird hostname also works on the server Mac when local DNS or `/etc/hosts` resolves it to loopback. Those requests pass through the same VPN authentication and origin checks; ordinary localhost requests keep their existing behavior. Other hostnames are not implicitly trusted.
+The configured tailscale MagicDNS hostname (`<machine>.<tailnet>.ts.net`) also works on the server Mac when local DNS or `/etc/hosts` resolves it to loopback. Those requests pass through the same VPN authentication and origin checks; ordinary localhost requests keep their existing behavior. Other hostnames are not implicitly trusted.
 
 Live Timeline uses a bridge on port 47882, bound only to loopback and the configured VPN address, forwarding to the existing localhost:47881 Timeline service. It shares ARRA's authentication mode, browser sessions, and logout revocation. The app does not start or modify Timeline itself. The sidebar preserves the full ARRA URL for return navigation; browser Back works across both origins.
 
@@ -15,7 +15,7 @@ just desktop-vpn
 # Same authenticated behavior, explicitly selected
 just desktop-vpn mode=WITH_AUTH
 
-# Fast trusted-VPN mode: every allowed NetBird peer can use Claude
+# Fast trusted-VPN mode: every allowed tailscale peer can use Claude
 just desktop-vpn mode=NO_AUTH
 
 # Production mode: authentication is always enforced

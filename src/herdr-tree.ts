@@ -184,3 +184,13 @@ export function pickerGroups(groups: HerdrTreeGroup[], query: string): HerdrTree
 export function focusFromFilter(groups: HerdrTreeGroup[], filter: string): string[] {
   return filterTerms(filter).length ? pickerGroups(groups, filter).map(group => group.id) : []
 }
+
+// A deployment's default follow list ("arraxccdc", "white-laris-co" or "session:nsm") as group ids.
+// A local session wins over a machine of the same name; a name nobody runs stays as a session id,
+// so it shows as a "not running" chip instead of vanishing.
+export function resolveFollow(groups: HerdrTreeGroup[], names: string[]): string[] {
+  return [...new Set(names.map(name => {
+    if (/^(session|machine):/.test(name)) return name
+    return (groups.find(group => group.kind === 'local' && group.label === name) ?? groups.find(group => group.label === name))?.id ?? `session:${name}`
+  }))]
+}
