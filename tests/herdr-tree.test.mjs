@@ -29,7 +29,7 @@ test('assembleGroup joins workspaces, branches and agent session ids; unreachabl
   assert.equal(parseTreeAgents(agents).get('w1')[0].sessionId, 'sid-1')
   const group = assembleGroup({ id: 'g', label: 'g', kind: 'local', command: 'herdr' }, ws(w('w1', 'team', 'working', { checkout_path: '/r', repo_key: 'k' }), w('w2', 'plain', 'idle')), agents, new Map([['/r', 'main']]))
   assert.equal(group.reachable, true)
-  assert.deepEqual(group.workspaces[0], { id: 'w1', label: 'team', status: 'working', branch: 'main', agents: [{ paneId: 'w1:p1', agent: 'claude', name: 'atlas', sessionId: 'sid-1' }] })
+  assert.deepEqual(group.workspaces[0], { id: 'w1', label: 'team', status: 'working', repoKey: 'k', linked: false, checkoutPath: '/r', branch: 'main', agents: [{ paneId: 'w1:p1', agent: 'claude', name: 'atlas', sessionId: 'sid-1' }] })
   assert.equal(group.workspaces[1].branch, null)
   assert.deepEqual(assembleGroup({ id: 'g', label: 'g', kind: 'machine', command: 'c' }, null, null, new Map()).reachable, false)
 })
@@ -86,4 +86,10 @@ test('spaces without a worktree field get their branch from the pane cwd via wor
   const { groups } = await createHerdrTree({ run }).snapshot()
   assert.equal(groups[0].workspaces[0].branch, 'brand/x')
   assert.equal('cwd' in groups[0].workspaces[0].agents[0], false)
+})
+
+test('workspaces expose repoKey, linked and checkoutPath for nesting', () => {
+  const out = ws(w('w1', 'main', 'idle', { checkout_path: '/r', repo_key: 'k', is_linked_worktree: false }), w('w2', 'wt', 'idle', { checkout_path: '/r/wt/a', repo_key: 'k', is_linked_worktree: true }))
+  const group = assembleGroup({ id: 'g', label: 'g', kind: 'local', command: 'c' }, out, null, new Map())
+  assert.deepEqual(group.workspaces.map(x => [x.repoKey, x.linked, x.checkoutPath]), [['k', false, '/r'], ['k', true, '/r/wt/a']])
 })
