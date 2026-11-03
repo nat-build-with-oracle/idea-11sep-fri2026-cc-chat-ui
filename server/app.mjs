@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ClaudeRunner } from './claude-runner.mjs';
 import { NativeSessionService } from './native-sessions.mjs';
 import { annotateSessions, createHerdrSessions } from './herdr-sessions.mjs';
+import { createHerdrTree } from './herdr-tree.mjs';
 import { createClaudeEnvironment } from './claude-environment.mjs';
 import { TranscriptSync } from './transcript-sync.mjs';
 import { RepositoryService } from './repositories.mjs';
@@ -243,6 +244,7 @@ export async function createApp(options = {}) {
   }
   const distDir = path.resolve(options.distDir || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist'));
   const herdr = options.herdrSessions || createHerdrSessions();
+  const herdrTree = options.herdrTree || createHerdrTree();
   const broadcaster = makeBroadcaster(store);
   const transcriptSync = new TranscriptSync({ store, nativeSessions, canSyncChat: isClaudeChat, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
   const historyLoads = new Map();
@@ -415,6 +417,7 @@ export async function createApp(options = {}) {
         });
       }
       if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
+      if (request.method === 'GET' && url.pathname === '/api/herdr-tree') return json(response, 200, await herdrTree.snapshot());
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {
         const sessions = await listedNativeSessions();
         return json(response, 200, { sessions, herdrSessions: (await herdr.snapshot()).sessions });

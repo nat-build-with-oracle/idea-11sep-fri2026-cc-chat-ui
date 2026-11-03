@@ -1,5 +1,5 @@
 import { backendApiUrl, backendTarget } from './backend-target.ts'
-import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory, SerializedRepositoryPreferences, SessionNameTarget, SessionNameResult } from './types'
+import type { AppState, Chat, Health, Project, NativeSession, HistoryPage, RepositoryInventory, SerializedRepositoryPreferences, SessionNameTarget, SessionNameResult, HerdrTreeGroup } from './types'
 
 export async function request<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const target = backendTarget(window.location.href)
@@ -33,6 +33,7 @@ export const api = {
   suggestSessionNames: (target: SessionNameTarget, summaryModel: 'haiku' | 'sonnet', signal?: AbortSignal) => request<SessionNameResult>('/session-names/suggest', 'POST', { target, summaryModel }, signal),
   applySessionAlias: (target: SessionNameTarget, title: string, expectedTitle: string) => request<{ title: string }>('/session-names/alias', 'POST', { target, title, expectedTitle }),
   repositories: () => request<RepositoryInventory>('/repositories'),
+  herdrTree: () => request<{ groups: HerdrTreeGroup[] }>('/herdr-tree'),
   nativeSessions: () => request<{ sessions: NativeSession[]; herdrSessions?: string[] }>('/native-sessions'),
   nativeHistory: (id: string, offset = 0, signal?: AbortSignal) => request<HistoryPage>(`/native-sessions/${encodeURIComponent(id)}/messages?offset=${offset}&limit=100`, 'GET', undefined, signal),
   importSession: (id: string) => request<Chat>(`/native-sessions/${encodeURIComponent(id)}/import`, 'POST'),

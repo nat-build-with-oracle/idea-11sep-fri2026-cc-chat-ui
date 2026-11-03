@@ -36,6 +36,8 @@ import { chatReadOnlyReason, isWritableClaudeChat } from './claude-chat'
 import { buildMentionCandidates, expandMentionContext, type MentionCandidate } from './mentions'
 import { mentionBindings, parseMentionBindings, resolveMentionBindings } from './mention-draft'
 import { followConversationBottom } from './follow-latest'
+import HerdrTree from './HerdrTree'
+import { parseCollapsed, toggleCollapsed } from './herdr-tree'
 import { startNativeSessionRefresh } from './native-session-refresh'
 
 const preview = new URLSearchParams(window.location.search).get('preview') === 'oracle'
@@ -90,6 +92,8 @@ export default function App() {
   const [nativeListLoaded, setNativeListLoaded] = useState(preview)
   const [nativeSessions, setNativeSessions] = useState<NativeSession[]>([])
   const [herdrChoice, setHerdrChoice] = useState(() => stored('herdrSessionFilter'))
+  const [herdrTreeOn, setHerdrTreeOn] = useState(() => stored('herdrTreeOn') === '1')
+  const [herdrCollapsed, setHerdrCollapsed] = useState(() => parseCollapsed(stored('herdrTreeCollapsed', '[]')))
   const [native, setNative] = useState<NativeSession | null>(null)
   const [nativeMessages, setNativeMessages] = useState<Message[]>([])
   const [nativeOffset, setNativeOffset] = useState<number | null>(null)
@@ -158,6 +162,8 @@ export default function App() {
   const herdrOptions = herdrSessionOptions(nativeSessions, filter)
   const herdrFilter = effectiveHerdrSession(herdrChoice, herdrOptions)
   const visibleSessions = sessionsForTab(nativeSessions, sessionTab, filter, herdrFilter)
+  function toggleHerdrTree() { const next = !herdrTreeOn; setHerdrTreeOn(next); remember('herdrTreeOn', next ? '1' : '0') }
+  function toggleHerdrGroup(id: string) { const next = toggleCollapsed(herdrCollapsed, id); setHerdrCollapsed(next); remember('herdrTreeCollapsed', JSON.stringify(next)) }
   function chooseHerdr(name: string) { setHerdrChoice(name); remember('herdrSessionFilter', name) }
   const nextHistory = view === 'native' ? nativeOffset : chat?.historyNextOffset ?? null
   const importedHistoryPending = Boolean(chat?.nativeImported && nextHistory !== null)
@@ -660,7 +666,8 @@ export default function App() {
           {view === 'agents' ? <section className="agents-view">
             <div className="agents-heading"><div><h2>Pick up<br /><span>a thread.</span></h2><p>Your ideas didn’t go anywhere. <strong>{nativeSessions.length ? `${nativeSessions.length} real chats, right here.` : 'Let’s find your chats.'}</strong></p></div><button className="inbox-new" aria-label="Start a new chat" onClick={() => newChat()}><Icon name="plus" size={21} />Start something</button></div>
             <div className="inbox-controls"><label className="search-input"><Icon name="search" /><input value={filter} onChange={event => navigate({ view: 'agents', tab: sessionTab, search: event.target.value }, true)} placeholder="Find your people, projects, ideas…" aria-label="Filter Claude sessions" /></label><button className="inbox-refresh icon-button" title="Refresh real Claude sessions" aria-label="Refresh Claude sessions" onClick={() => void refreshNative()} disabled={nativeListLoading}><Icon name="refresh" /></button></div>
-            {herdrOptions.length > 0 && <div className="herdr-filter" role="group" aria-label="Herdr session"><span className="herdr-filter-label">herdr</span><button aria-pressed={!herdrFilter} onClick={() => chooseHerdr('')}>All</button>{herdrOptions.map(option => <button key={option.name} aria-pressed={herdrFilter === option.name} onClick={() => chooseHerdr(option.name)}>{option.name}<span>{option.count}</span></button>)}</div>}
+            <div className="herdr-filter" role="group" aria-label="Herdr session"><span className="herdr-filter-label">herdr</span><button aria-pressed={!herdrFilter} onClick={() => chooseHerdr('')}>All</button>{herdrOptions.map(option => <button key={option.name} aria-pressed={herdrFilter === option.name} onClick={() => chooseHerdr(option.name)}>{option.name}<span>{option.count}</span></button>)}<button className="herdr-tree-toggle" aria-pressed={herdrTreeOn} onClick={toggleHerdrTree} title="Show herdr's sidebar tree">Tree</button></div>
+            {herdrTreeOn && <HerdrTree nativeSessions={nativeSessions} collapsed={herdrCollapsed} onToggle={toggleHerdrGroup} onOpen={item => void selectNative(item)} onCopy={(text, label) => void copy(text, label)} />}
             <div className={`inbox-tabs${herdrFilter ? ' dimmed' : ''}`} role="group" aria-label="Session source">{([{ id: 'agents', label: 'Agents' }, { id: 'terminals', label: 'Terminals' }, { id: 'saved', label: 'Saved' }] as const).map(tab => <button key={tab.id} aria-pressed={sessionTab === tab.id} onClick={() => navigate({ view: 'agents', tab: tab.id, search: filter })}>{tab.label}<span>{sessionsForTab(nativeSessions, tab.id).length}</span></button>)}</div>
             <p className="session-source-note">{sessionTab === 'agents' ? 'Background agents · grouped like Claude agents' : sessionTab === 'terminals' ? 'Open Claude terminal sessions' : 'Saved conversations from the Claude SDK'} · Newest started first</p>
             {nativeError && <p className="inline-error" role="alert">{nativeError}</p>}{nativeListLoading && !nativeSessions.length && <div className="skeleton-lines"><i /><i /><i /></div>}
