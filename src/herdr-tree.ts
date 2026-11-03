@@ -89,17 +89,17 @@ export function chatForWorkspace(group: HerdrTreeGroup, workspace: HerdrTreeWork
 }
 
 // A group is lively when something in it is working, needs input or just finished, or when it
-// holds the chat that is open now. Lively groups show and open by default; quiet ones wait behind
-// "Show N quiet …" until asked for.
+// holds the chat that is open now.
 export function isLively(group: HerdrTreeGroup, currentSessionId?: string | null): boolean {
   if (!group.reachable) return false
   return hasActivity(countTones(group.workspaces))
     || (group.kind === 'local' && group.workspaces.some(workspace => spaceHasSession(workspace, currentSessionId)))
 }
 
-export interface HerdrTreeState { groups: Record<string, boolean>; full: Record<string, boolean>; quiet: { local: boolean; machine: boolean }; filter: string }
-
-export const emptyTreeState: HerdrTreeState = { groups: {}, full: {}, quiet: { local: false, machine: false }, filter: '' }
+// `focus` lists the groups the sidebar follows, by id; null until the first choice is made.
+// `groups` remembers a followed group folded by hand. `filter` is only read once, to turn a filter
+// typed before the picker existed into the first choice.
+export interface HerdrTreeState { groups: Record<string, boolean>; focus: string[] | null; filter: string }
 
 function booleans(value: unknown): Record<string, boolean> {
   const out: Record<string, boolean> = {}
@@ -112,55 +112,60 @@ function booleans(value: unknown): Record<string, boolean> {
 export function parseTreeState(raw: string): HerdrTreeState {
   try {
     const value = JSON.parse(raw)
-    return { groups: booleans(value?.groups), full: booleans(value?.full), quiet: { local: value?.quiet?.local === true, machine: value?.quiet?.machine === true }, filter: typeof value?.filter === 'string' ? value.filter.slice(0, 120) : '' }
-  } catch { return { groups: {}, full: {}, quiet: { local: false, machine: false }, filter: '' } }
+    const focus = Array.isArray(value?.focus)
+      ? [...new Set<string>((value.focus as unknown[]).filter((id): id is string => typeof id === 'string' && id.length <= 200))].slice(0, 60)
+      : null
+    return { groups: booleans(value?.groups), focus, filter: typeof value?.filter === 'string' ? value.filter.slice(0, 120) : '' }
+  } catch { return { groups: {}, focus: null, filter: '' } }
 }
 
-export function groupIsOpen(state: HerdrTreeState, group: HerdrTreeGroup, currentSessionId?: string | null, filtering = false): boolean {
-  return state.groups[group.id] ?? (filtering || isLively(group, currentSessionId))
+// A followed group opens unless it was folded by hand.
+export function groupIsOpen(state: HerdrTreeState, group: HerdrTreeGroup): boolean {
+  return state.groups[group.id] ?? true
 }
 
 export function withGroup(state: HerdrTreeState, id: string, open: boolean): HerdrTreeState {
   return { ...state, groups: { ...state.groups, [id]: open } }
 }
 
-export function withFull(state: HerdrTreeState, id: string, full: boolean): HerdrTreeState {
-  return { ...state, full: { ...state.full, [id]: full } }
+export function withFocus(state: HerdrTreeState, focus: string[]): HerdrTreeState {
+  return { ...state, focus: [...new Set(focus)].slice(0, 60) }
 }
 
-export function withFilter(state: HerdrTreeState, filter: string): HerdrTreeState {
-  return { ...state, filter: filter.slice(0, 120) }
+export function toggleFocus(state: HerdrTreeState, id: string): HerdrTreeState {
+  const focus = state.focus ?? []
+  return withFocus(state, focus.includes(id) ? focus.filter(item => item !== id) : [...focus, id])
 }
 
-export function withQuiet(state: HerdrTreeState, kind: HerdrTreeGroup['kind'], show: boolean): HerdrTreeState {
-  return { ...state, quiet: { ...state.quiet, [kind]: show } }
+// The groups the sidebar follows, This Mac first, each kind in herdr's own order.
+export function focusedGroups(groups: HerdrTreeGroup[], focus: string[] | null): HerdrTreeGroup[] {
+  if (!focus?.length) return []
+  const chosen = new Set(focus)
+  return (['local', 'machine'] as const).flatMap(kind => groups.filter(group => group.kind === kind && chosen.has(group.id)))
 }
 
-export interface HerdrTier { kind: HerdrTreeGroup['kind']; shown: HerdrTreeGroup[]; hidden: number; quiet: number }
-
-// This Mac first, then saved machines, each in herdr's own order (no reshuffling on every poll).
-// A group the user opened by hand stays in view even when it goes quiet.
-export function tiers(groups: HerdrTreeGroup[], state: HerdrTreeState, currentSessionId?: string | null, filtering = false): HerdrTier[] {
-  return (['local', 'machine'] as const).map(kind => {
-    const all = groups.filter(group => group.kind === kind)
-    if (filtering) return { kind, shown: all, hidden: 0, quiet: 0 }
-    const keep = (group: HerdrTreeGroup) => isLively(group, currentSessionId) || state.groups[group.id] === true
-    const quiet = all.filter(group => !keep(group)).length
-    const shown = state.quiet[kind] ? all : all.filter(keep)
-    return { kind, shown, hidden: all.length - shown.length, quiet }
-  }).filter(tier => tier.shown.length + tier.hidden > 0)
+// Chosen ids whose session or machine is not in the tree right now (stopped, removed or renamed).
+export function missingFocus(groups: HerdrTreeGroup[], focus: string[] | null): string[] {
+  const ids = new Set(groups.map(group => group.id))
+  return (focus ?? []).filter(id => !ids.has(id))
 }
 
-// Inside a busy group, show what is working, waiting or done (and the chat open now), with the
-// main checkout kept as context for a busy worktree. The rest is `hidden` behind "Show N more".
-export function focusSpaces(group: HerdrTreeGroup, currentSessionId?: string | null, full = false): { nodes: HerdrNode[]; hidden: number } {
-  const nodes = nestSpaces(group.workspaces)
-  if (full || !hasActivity(countTones(group.workspaces))) return { nodes, hidden: 0 }
-  const relevant = (workspace: HerdrTreeWorkspace) => hasActivity(countTones([workspace])) || spaceHasSession(workspace, currentSessionId)
-  const shown = nodes.map(node => ({ workspace: node.workspace, children: node.children.filter(relevant) }))
-    .filter(node => relevant(node.workspace) || node.children.length > 0)
-  const count = shown.reduce((sum, node) => sum + 1 + node.children.length, 0)
-  return { nodes: shown, hidden: group.workspaces.length - count }
+// One tone for a whole group, the most urgent first; an unreachable group is `offline`.
+export function groupTone(group: HerdrTreeGroup): HerdrTone | 'offline' {
+  if (!group.reachable) return 'offline'
+  const counts = countTones(group.workspaces)
+  return (['needs', 'working', 'done', 'idle'] as const).find(tone => counts[tone] > 0) ?? 'none'
+}
+
+const urgency = { needs: 0, working: 1, done: 2, idle: 3, none: 4, offline: 5 } as const
+
+// One-click suggestions: lively groups not followed yet, most urgent first.
+export function focusSuggestions(groups: HerdrTreeGroup[], focus: string[] | null, currentSessionId?: string | null, limit = 6): HerdrTreeGroup[] {
+  const chosen = new Set(focus ?? [])
+  return groups.filter(group => !chosen.has(group.id) && isLively(group, currentSessionId))
+    .map((group, index) => ({ group, index }))
+    .sort((a, b) => urgency[groupTone(a.group)] - urgency[groupTone(b.group)] || a.index - b.index)
+    .slice(0, limit).map(item => item.group)
 }
 
 // "laris-co nsm" or "laris-co, nsm": any term may match. Terms are lower-cased and de-duplicated.
@@ -168,15 +173,14 @@ export function filterTerms(raw: string): string[] {
   return [...new Set(raw.toLowerCase().split(/[\s,]+/).map(term => term.trim()).filter(Boolean))].slice(0, 8)
 }
 
-// A group matches by its name or its herdr session (so "laris-co" finds m5's laris-co and
-// white-laris-co alike) and then shows every space. Otherwise it stays only for the spaces whose
-// name or branch matches, and shows just those.
-export function filterGroups(groups: HerdrTreeGroup[], terms: string[]): HerdrTreeGroup[] {
+// The picker's search: group names and herdr sessions ("laris-co" finds white-laris-co too).
+export function pickerGroups(groups: HerdrTreeGroup[], query: string): HerdrTreeGroup[] {
+  const terms = filterTerms(query)
   if (!terms.length) return groups
-  const hit = (text?: string | null) => Boolean(text) && terms.some(term => text!.toLowerCase().includes(term))
-  return groups.flatMap(group => {
-    if (hit(group.label) || hit(group.session)) return [group]
-    const workspaces = group.workspaces.filter(workspace => hit(workspace.label) || hit(workspace.branch))
-    return workspaces.length ? [{ ...group, workspaces }] : []
-  })
+  return groups.filter(group => terms.some(term => group.label.toLowerCase().includes(term) || (group.session ?? '').toLowerCase().includes(term)))
+}
+
+// A filter typed before the picker existed becomes the first choice: the groups it named.
+export function focusFromFilter(groups: HerdrTreeGroup[], filter: string): string[] {
+  return filterTerms(filter).length ? pickerGroups(groups, filter).map(group => group.id) : []
 }
