@@ -66,6 +66,16 @@ export function parseWorktreeBranches(output) {
   return branches;
 }
 
+// Branch of the checkout that contains `cwd` (exact path, else the longest parent path).
+export function branchForCwd(output, cwd) {
+  const branches = parseWorktreeBranches(output);
+  let best = null;
+  for (const [path, branch] of branches) {
+    if ((cwd === path || cwd.startsWith(`${path}/`)) && (!best || path.length > best.path.length)) best = { path, branch };
+  }
+  return best?.branch ?? null;
+}
+
 export function parseTreeAgents(output) {
   const value = parseJson(output)?.result?.agents;
   if (!Array.isArray(value)) return new Map();
@@ -76,7 +86,7 @@ export function parseTreeAgents(output) {
     const paneId = text(agent?.pane_id, 100);
     if (!workspaceId || !paneId) continue;
     const known = withIds.get(paneId);
-    const entry = { paneId, agent: text(agent.agent, 50), name: known?.agentName ?? null, sessionId: known?.claudeSessionId ?? null };
+    const entry = { paneId, cwd: text(agent.cwd, 4096), agent: text(agent.agent, 50), name: known?.agentName ?? null, sessionId: known?.claudeSessionId ?? null };
     byWorkspace.set(workspaceId, [...(byWorkspace.get(workspaceId) ?? []), entry]);
   }
   return byWorkspace;
@@ -94,8 +104,9 @@ export function assembleGroup(spec, workspaceOutput, agentOutput, branchByPath) 
       id: workspace.id,
       label: workspace.label,
       status: workspace.status,
-      branch: workspace.checkoutPath ? branchByPath.get(workspace.checkoutPath) ?? null : null,
-      agents: agents.get(workspace.id) ?? [],
+      branch: (workspace.checkoutPath && branchByPath.get(workspace.checkoutPath))
+        || (agents.get(workspace.id) ?? []).map((agent) => agent.cwd && branchByPath.get(agent.cwd)).find(Boolean) || null,
+      agents: (agents.get(workspace.id) ?? []).map((agent) => ({ paneId: agent.paneId, agent: agent.agent, name: agent.name, sessionId: agent.sessionId })),
     })),
   };
 }
@@ -127,6 +138,23 @@ export function createHerdrTree({ run = runHerdr, ttlMs = 10_000, timeoutMs = 4_
         const output = await run([...prefix, 'worktree', 'list', '--workspace', workspace.id], timeoutMs);
         for (const [path, branch] of parseWorktreeBranches(output)) branchByPath.set(path, branch);
       }));
+    // Spaces that are not worktree workspaces carry no worktree field; ask herdr about the
+    // pane's cwd instead (`worktree list --cwd` also works through --machine, no ssh needed).
+    const covered = new Set(branchByPath.keys());
+    const cwds = new Set();
+    for (const [workspaceId, list] of parseTreeAgents(agentOutput)) {
+      const known = workspaces.find((workspace) => workspace.id === workspaceId);
+      const cwd = list.map((agent) => agent.cwd).find(Boolean);
+      if (known && cwd && !(known.checkoutPath && covered.has(known.checkoutPath)) && !covered.has(cwd)) cwds.add(cwd);
+    }
+    const queue = [...cwds];
+    await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
+      while (queue.length) {
+        const cwd = queue.shift();
+        const branch = branchForCwd(await run([...prefix, 'worktree', 'list', '--cwd', cwd], timeoutMs), cwd);
+        if (branch) branchByPath.set(cwd, branch);
+      }
+    }));
     return assembleGroup(spec, workspaceOutput, agentOutput, branchByPath);
   }
 

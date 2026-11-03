@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { assembleGroup, createHerdrTree, parseMachines, parseTreeAgents, parseWorkspaces, parseWorktreeBranches } from '../server/herdr-tree.mjs'
+import { assembleGroup, branchForCwd, createHerdrTree, parseMachines, parseTreeAgents, parseWorkspaces, parseWorktreeBranches } from '../server/herdr-tree.mjs'
 
 const ws = (...workspaces) => JSON.stringify({ result: { workspaces } })
 const w = (id, label, status, worktree) => ({ workspace_id: id, label, agent_status: status, ...(worktree ? { worktree } : {}) })
@@ -63,4 +63,27 @@ test('snapshot builds local and machine groups, tolerates an unreachable machine
 test('snapshot never rejects when herdr is missing', async () => {
   const tree = createHerdrTree({ run: async () => { throw new Error('ENOENT') } })
   assert.deepEqual(await tree.snapshot(), { groups: [] })
+})
+
+test('branchForCwd picks the checkout containing the cwd, longest path first', () => {
+  const out = JSON.stringify({ result: { worktrees: [{ path: '/r', branch: 'main' }, { path: '/r/wt/a', branch: 'feat/a' }] } })
+  assert.equal(branchForCwd(out, '/r'), 'main')
+  assert.equal(branchForCwd(out, '/r/wt/a/sub'), 'feat/a')
+  assert.equal(branchForCwd(out, '/elsewhere'), null)
+  assert.equal(branchForCwd('garbage', '/r'), null)
+})
+
+test('spaces without a worktree field get their branch from the pane cwd via worktree list --cwd', async () => {
+  const run = async (args) => {
+    const key = args.join(' ')
+    if (key === 'session list --json') return JSON.stringify({ sessions: [{ name: 's', running: true }] })
+    if (key === 'machine list') return ''
+    if (key.endsWith('workspace list')) return ws(w('w1', 'plain', 'idle'))
+    if (key.endsWith('agent list')) return JSON.stringify({ result: { agents: [{ agent: 'claude', pane_id: 'w1:p1', workspace_id: 'w1', cwd: '/opt/x/plain' }] } })
+    if (key.endsWith('worktree list --cwd /opt/x/plain')) return JSON.stringify({ result: { worktrees: [{ path: '/opt/x/plain', branch: 'brand/x' }] } })
+    return null
+  }
+  const { groups } = await createHerdrTree({ run }).snapshot()
+  assert.equal(groups[0].workspaces[0].branch, 'brand/x')
+  assert.equal('cwd' in groups[0].workspaces[0].agents[0], false)
 })
