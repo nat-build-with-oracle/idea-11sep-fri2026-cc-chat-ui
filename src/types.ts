@@ -25,6 +25,7 @@ export interface Chat {
   model: Model; provider?: string; permissionMode: PermissionMode; createdAt: string; updatedAt: string;
   messages: Message[]; status: 'idle' | 'running';
   sync?: ChatSync;
+  forkFrom?: string | null;
   nativeImported?: boolean; historyUnavailable?: boolean; historyTruncated?: boolean; historyNextOffset?: number | null;
 }
 export interface SerializedRepositoryPreferences { favorites?: string[]; names?: Record<string, string>; threadSorts?: Record<string, 'updated' | 'name'> }

@@ -347,6 +347,7 @@ export async function createApp(options = {}) {
       done = runner.run({
         chatId,
         sessionId: launch.sessionId,
+        forkFrom: launch.forkFrom || null,
         title: launch.title,
         model: launch.model,
         permissionMode: launch.permissionMode,
@@ -585,6 +586,46 @@ export async function createApp(options = {}) {
         });
         return json(response, 201, imported);
       }
+      // Fork: a new chat that starts from a session's history, even while a terminal holds that session.
+      // It has no session id until its first turn, which runs `claude --resume <source> --fork-session`.
+      const forkSessionId = nativeSessionId(url.pathname, '/fork');
+      if (forkSessionId && request.method === 'POST') {
+        const input = await body(request);
+        const model = input.model ?? 'sonnet';
+        validateClaudeInput(input);
+        assertClaudeSession(forkSessionId);
+        const native = await nativeSessions.forkable(forkSessionId);
+        const projectPath = await validateProjectPath(native.cwd);
+        const permissionMode = input.permissionMode ?? 'bypassPermissions';
+        if (!PERMISSION_MODES.has(permissionMode)) throw apiError('Invalid permission mode');
+        const history = await nativeSessions.messages(native.sessionId, { offset: 0, limit: 200 });
+        const forked = await store.update((state) => {
+          let project = state.projects.find((item) => (item.canonicalPath || item.path) === projectPath);
+          const now = new Date().toISOString();
+          if (!project) {
+            project = { id: randomUUID(), name: path.basename(projectPath) || projectPath, path: projectPath, createdAt: now };
+            state.projects.push(project);
+          }
+          const alias = state.nativeSessionAliases.find((item) => item.sessionId === native.sessionId);
+          const chat = {
+            id: randomUUID(),
+            title: `${alias?.title || native.name || 'Claude session'} · fork`.slice(0, 500),
+            projectId: project.id,
+            sessionId: null,
+            forkFrom: native.sessionId,
+            model,
+            permissionMode,
+            createdAt: now,
+            updatedAt: now,
+            messages: history.messages,
+            status: 'idle',
+            historyTruncated: history.nextOffset !== null,
+          };
+          state.chats.unshift(chat);
+          return chat;
+        });
+        return json(response, 201, forked);
+      }
       const renameNativeSessionId = nativeSessionId(url.pathname);
       if (renameNativeSessionId && request.method === 'PATCH') {
         assertClaudeSession(renameNativeSessionId);
@@ -701,6 +742,7 @@ export async function createApp(options = {}) {
               permissionMode: current.permissionMode,
               cwd: project?.path || cwd,
               nativeImported: Boolean(current.nativeImported),
+              forkFrom: current.sessionId ? null : current.forkFrom || null,
             },
           };
         });

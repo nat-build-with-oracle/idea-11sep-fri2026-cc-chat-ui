@@ -224,7 +224,7 @@ export class ClaudeRunner {
     return this.healthPromise;
   }
 
-  run({ chatId, sessionId, title, model, permissionMode, cwd, prompt, onUpdate, env }) {
+  run({ chatId, sessionId, forkFrom = null, title, model, permissionMode, cwd, prompt, onUpdate, env }) {
     if (this.running.has(chatId)) throw Object.assign(new Error('Chat is already running'), { statusCode: 409 });
     const selectedSessionId = sessionId || randomUUID();
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', model];
@@ -232,6 +232,8 @@ export class ClaudeRunner {
     else args.push('--permission-mode', 'default');
     if (typeof title === 'string' && title.trim()) args.push('--name', title.trim());
     if (sessionId) args.push('--resume', sessionId);
+    // A fork's first turn: Claude copies the source transcript into a new session and reports its id.
+    else if (forkFrom) args.push('--resume', forkFrom, '--fork-session');
     else {
       args.push('--session-id', selectedSessionId);
     }
@@ -258,7 +260,7 @@ export class ClaudeRunner {
           ...result,
           ok,
           error: result.error || normalizer.resultError || (malformed ? 'Claude returned malformed stream output' : null) || (missingResult ? 'Claude stream ended without a result event' : null),
-          sessionId: normalizer.sessionId || (ok ? selectedSessionId : null),
+          sessionId: normalizer.sessionId || (ok && !(forkFrom && !sessionId) ? selectedSessionId : null),
           text: normalizer.text,
           tools: [...normalizer.tools.values()],
           ...(normalizer.usage ? { usage: { ...normalizer.usage } } : {}),
