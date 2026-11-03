@@ -25,7 +25,7 @@ import { sortRepositoryThreads } from './repository-threads'
 import { parseHiddenRepositories, changeRepositoryVisibility } from './repository-visibility'
 import { initialRoute, recoverChatRoute } from './route-recovery'
 import { buildWorkspaceRepositories, type WorkspaceRepository } from './workspace-model'
-import { effectiveHerdrSession, herdrInfoLine, herdrSessionOptions, toggleHerdrChoice, sessionGroup, sessionGroups, sessionsForTab } from './session-list'
+import { effectiveHerdrSession, herdrInfoLine, herdrGroups, herdrSessionOptions, toggleHerdrChoice, sessionGroup, sessionGroups, sessionsForTab } from './session-list'
 import BackendConnectionInfo from './BackendConnectionInfo'
 import MentionComposer from './MentionComposer'
 import ProjectSearch from './ProjectSearch'
@@ -155,7 +155,7 @@ export default function App() {
   const messages = view === 'native' ? nativeMessages : chat?.messages ?? []
   const conversationItems = buildConversationItems(messages)
   const headerHerdr = view === 'agents' ? '' : herdrInfoLine(nativeSessions.find(item => item.sessionId && item.sessionId === currentSessionId) ?? {})
-  const herdrOptions = herdrSessionOptions(nativeSessions, sessionTab, filter)
+  const herdrOptions = herdrSessionOptions(nativeSessions, filter)
   const herdrFilter = effectiveHerdrSession(herdrChoice, herdrOptions)
   const visibleSessions = sessionsForTab(nativeSessions, sessionTab, filter, herdrFilter)
   function chooseHerdr(name: string) { setHerdrChoice(name); remember('herdrSessionFilter', name) }
@@ -660,11 +660,11 @@ export default function App() {
           {view === 'agents' ? <section className="agents-view">
             <div className="agents-heading"><div><h2>Pick up<br /><span>a thread.</span></h2><p>Your ideas didn’t go anywhere. <strong>{nativeSessions.length ? `${nativeSessions.length} real chats, right here.` : 'Let’s find your chats.'}</strong></p></div><button className="inbox-new" aria-label="Start a new chat" onClick={() => newChat()}><Icon name="plus" size={21} />Start something</button></div>
             <div className="inbox-controls"><label className="search-input"><Icon name="search" /><input value={filter} onChange={event => navigate({ view: 'agents', tab: sessionTab, search: event.target.value }, true)} placeholder="Find your people, projects, ideas…" aria-label="Filter Claude sessions" /></label><button className="inbox-refresh icon-button" title="Refresh real Claude sessions" aria-label="Refresh Claude sessions" onClick={() => void refreshNative()} disabled={nativeListLoading}><Icon name="refresh" /></button></div>
-            <div className="inbox-tabs" role="group" aria-label="Session source">{([{ id: 'agents', label: 'Agents' }, { id: 'terminals', label: 'Terminals' }, { id: 'saved', label: 'Saved' }] as const).map(tab => <button key={tab.id} aria-pressed={sessionTab === tab.id} onClick={() => navigate({ view: 'agents', tab: tab.id, search: filter })}>{tab.label}<span>{sessionsForTab(nativeSessions, tab.id).length}</span></button>)}</div>
             {herdrOptions.length > 0 && <div className="herdr-filter" role="group" aria-label="Herdr session"><span className="herdr-filter-label">herdr</span><button aria-pressed={!herdrFilter} onClick={() => chooseHerdr('')}>All</button>{herdrOptions.map(option => <button key={option.name} aria-pressed={herdrFilter === option.name} onClick={() => chooseHerdr(option.name)}>{option.name}<span>{option.count}</span></button>)}</div>}
+            <div className={`inbox-tabs${herdrFilter ? ' dimmed' : ''}`} role="group" aria-label="Session source">{([{ id: 'agents', label: 'Agents' }, { id: 'terminals', label: 'Terminals' }, { id: 'saved', label: 'Saved' }] as const).map(tab => <button key={tab.id} aria-pressed={sessionTab === tab.id} onClick={() => navigate({ view: 'agents', tab: tab.id, search: filter })}>{tab.label}<span>{sessionsForTab(nativeSessions, tab.id).length}</span></button>)}</div>
             <p className="session-source-note">{sessionTab === 'agents' ? 'Background agents · grouped like Claude agents' : sessionTab === 'terminals' ? 'Open Claude terminal sessions' : 'Saved conversations from the Claude SDK'} · Newest started first</p>
             {nativeError && <p className="inline-error" role="alert">{nativeError}</p>}{nativeListLoading && !nativeSessions.length && <div className="skeleton-lines"><i /><i /><i /></div>}
-            {sessionGroups[sessionTab].map(group => {
+            {(herdrFilter ? herdrGroups : sessionGroups[sessionTab]).map(group => {
               const rows = visibleSessions.filter(item => sessionGroup(item) === group)
               return rows.length ? <section className="native-group" key={group}><h3>{group === 'Saved conversations' ? 'Waiting for your next idea' : group}<span className="count">{rows.length}</span></h3>{rows.map((item, index) => {
                 const project = item.cwd.split('/').filter(Boolean).pop() || 'Local workspace'

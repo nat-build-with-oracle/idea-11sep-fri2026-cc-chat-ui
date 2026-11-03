@@ -36,9 +36,9 @@ test('herdr session filter composes with tab and search; options only list sessi
   assert.deepEqual(sessionsForTab(rows, 'terminals', '', 'laris-co').map(item => item.id).sort(), ['a', 'b'])
   assert.deepEqual(sessionsForTab(rows, 'terminals', 'beta', 'laris-co').map(item => item.id), ['b'])
   assert.equal(sessionsForTab(rows, 'terminals').length, 4)
-  const options = herdrSessionOptions(rows, 'terminals')
+  const options = herdrSessionOptions(rows)
   assert.deepEqual(options, [{ name: 'laris-co', count: 2 }, { name: 'arraxccdc', count: 1 }])
-  assert.deepEqual(herdrSessionOptions(rows, 'saved'), [])
+  assert.deepEqual(herdrSessionOptions(rows, 'beta'), [{ name: 'laris-co', count: 1 }])
   assert.equal(effectiveHerdrSession('arraxccdc', options), 'arraxccdc')
   assert.equal(effectiveHerdrSession('gone', options), '')
 })
@@ -51,4 +51,14 @@ test('herdr badge helpers: info line keeps known parts in order; clicking the ac
   assert.equal(toggleHerdrChoice('', 'neo'), 'neo')
   assert.equal(toggleHerdrChoice('neo', 'neo'), '')
   assert.equal(toggleHerdrChoice('neo', 'nsm'), 'nsm')
+})
+
+test('a chosen herdr session lists every kind regardless of tab; counts span all kinds', async () => {
+  const { herdrSessionOptions, herdrGroups, sessionGroup } = await import('../src/session-list.ts')
+  const mk = (id, kind, herdrSession) => ({ ...row(id, kind, kind === 'background' ? 'working' : null, 1, 'idle'), herdrSession })
+  const rows = [mk('bg', 'background', 'neo'), mk('term', 'interactive', 'neo'), mk('sv', 'saved', 'neo'), mk('other', 'interactive', 'nsm'), mk('plain', 'interactive', undefined)]
+  for (const tab of ['agents', 'terminals', 'saved']) assert.deepEqual(sessionsForTab(rows, tab, '', 'neo').map(item => item.id).sort(), ['bg', 'sv', 'term'])
+  assert.deepEqual(herdrSessionOptions(rows), [{ name: 'neo', count: 3 }, { name: 'nsm', count: 1 }])
+  assert.deepEqual(sessionsForTab(rows, 'agents').map(item => item.id), ['bg'])
+  for (const item of sessionsForTab(rows, 'agents', '', 'neo')) assert.ok(herdrGroups.includes(sessionGroup(item)))
 })

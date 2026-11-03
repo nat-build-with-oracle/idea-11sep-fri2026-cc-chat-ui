@@ -26,16 +26,22 @@ export const ALL_HERDR_SESSIONS = ''
 export function sessionsForTab(sessions: NativeSession[], tab: SessionTab, search = '', herdrSession = ALL_HERDR_SESSIONS): NativeSession[] {
   const kind = tab === 'agents' ? 'background' : tab === 'terminals' ? 'interactive' : 'saved'
   const needle = search.trim().toLowerCase()
-  return sessions.filter(item => item.kind === kind && (!herdrSession || item.herdrSession === herdrSession) && `${item.name || ''} ${item.cwd} ${item.id || item.sessionId || ''}`.toLowerCase().includes(needle))
+  // A chosen herdr session lists its chats of every kind; the tab only applies to All.
+  return sessions.filter(item => (herdrSession ? item.herdrSession === herdrSession : item.kind === kind) && `${item.name || ''} ${item.cwd} ${item.id || item.sessionId || ''}`.toLowerCase().includes(needle))
     .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
 }
 
 export interface HerdrSessionOption { name: string; count: number }
 
-// Herdr sessions that actually own a chat in this tab (after search), busiest first.
-export function herdrSessionOptions(sessions: NativeSession[], tab: SessionTab, search = ''): HerdrSessionOption[] {
+// Groups shown when a herdr session is chosen (all kinds together).
+export const herdrGroups = ['Needs input', 'Working', 'Ready', 'Completed', 'Unknown state', 'Saved conversations'] as const
+
+// Herdr sessions that own a chat of any kind (after search), busiest first.
+export function herdrSessionOptions(sessions: NativeSession[], search = ''): HerdrSessionOption[] {
   const counts = new Map<string, number>()
-  for (const item of sessionsForTab(sessions, tab, search)) {
+  const needle = search.trim().toLowerCase()
+  for (const item of sessions) {
+    if (!`${item.name || ''} ${item.cwd} ${item.id || item.sessionId || ''}`.toLowerCase().includes(needle)) continue
     if (item.herdrSession) counts.set(item.herdrSession, (counts.get(item.herdrSession) ?? 0) + 1)
   }
   return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
