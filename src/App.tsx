@@ -37,7 +37,7 @@ import { buildMentionCandidates, expandMentionContext, type MentionCandidate } f
 import { mentionBindings, parseMentionBindings, resolveMentionBindings } from './mention-draft'
 import { followConversationBottom } from './follow-latest'
 import HerdrTree from './HerdrTree'
-import { parseCollapsed, toggleCollapsed } from './herdr-tree'
+import { parseTreeState, type HerdrTreeState } from './herdr-tree'
 import { startNativeSessionRefresh } from './native-session-refresh'
 
 const preview = new URLSearchParams(window.location.search).get('preview') === 'oracle'
@@ -93,7 +93,7 @@ export default function App() {
   const [nativeSessions, setNativeSessions] = useState<NativeSession[]>([])
   const [herdrChoice, setHerdrChoice] = useState(() => stored('herdrSessionFilter'))
   const [herdrSectionOpen, setHerdrSectionOpen] = useState(() => stored('herdrSidebarOpen', '1') !== '0')
-  const [herdrCollapsed, setHerdrCollapsed] = useState(() => parseCollapsed(stored('herdrTreeCollapsed', '[]')))
+  const [herdrTree, setHerdrTree] = useState(() => parseTreeState(stored('herdrTreeState', '{}')))
   const [native, setNative] = useState<NativeSession | null>(null)
   const [nativeMessages, setNativeMessages] = useState<Message[]>([])
   const [nativeOffset, setNativeOffset] = useState<number | null>(null)
@@ -163,7 +163,7 @@ export default function App() {
   const herdrFilter = effectiveHerdrSession(herdrChoice, herdrOptions)
   const visibleSessions = sessionsForTab(nativeSessions, sessionTab, filter, herdrFilter)
   function toggleHerdrSection() { const next = !herdrSectionOpen; setHerdrSectionOpen(next); remember('herdrSidebarOpen', next ? '1' : '0') }
-  function toggleHerdrGroup(id: string) { const next = toggleCollapsed(herdrCollapsed, id); setHerdrCollapsed(next); remember('herdrTreeCollapsed', JSON.stringify(next)) }
+  function changeHerdrTree(next: HerdrTreeState) { setHerdrTree(next); remember('herdrTreeState', JSON.stringify(next)) }
   function chooseHerdr(name: string) { setHerdrChoice(name); remember('herdrSessionFilter', name) }
   const nextHistory = view === 'native' ? nativeOffset : chat?.historyNextOffset ?? null
   const importedHistoryPending = Boolean(chat?.nativeImported && nextHistory !== null)
@@ -644,7 +644,7 @@ export default function App() {
           <a className="agents-nav no-underline" href={timelineLink(window.location.href, routeHash(route))} rel="noreferrer" title="Open this backend’s timeline · use your browser’s Back button to return"><Icon name="file" size={20} /><span>Live Timeline</span><Icon name="chevron" size={14} /></a>
         </>}
       </div>
-      <nav className="sidebar-scroll">{!preview && <HerdrTree nativeSessions={nativeSessions} open={herdrSectionOpen} onToggleSection={toggleHerdrSection} collapsed={herdrCollapsed} onToggle={toggleHerdrGroup} onOpen={item => void selectNative(item)} onCopy={(text, label) => void copy(text, label)} />}<section className="projects"><div className="section-label"><span>Projects</span><span className="repository-actions">{!preview && <IconButton icon="refresh" label="Refresh repositories and threads" onClick={() => { void refreshRepositories(); void refreshNative() }} disabled={repositoriesLoading || nativeListLoading} />}<IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></span></div>
+      <nav className="sidebar-scroll">{!preview && <HerdrTree nativeSessions={nativeSessions} open={herdrSectionOpen} onToggleSection={toggleHerdrSection} state={herdrTree} onState={changeHerdrTree} currentSessionId={currentSessionId} onOpen={item => void selectNative(item)} onCopy={(text, label) => void copy(text, label)} />}<section className="projects"><div className="section-label"><span>Projects</span><span className="repository-actions">{!preview && <IconButton icon="refresh" label="Refresh repositories and threads" onClick={() => { void refreshRepositories(); void refreshNative() }} disabled={repositoriesLoading || nativeListLoading} />}<IconButton icon="plus" label="Add project" onClick={() => { setProjectName(''); setProjectPath(health?.cwd || ''); setError(''); setModal('project') }} disabled={preview} /></span></div>
           {!preview && <><p className="repository-source" title={repositoryInventory.root || undefined}>{repositoriesLoading ? 'Finding repositories…' : repositoryInventory.root ? 'ghq · recent filesystem activity' : 'Your local folders'}</p><input className="repository-filter" aria-label="Search projects and Oracles" placeholder="Search projects and Oracles…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} />{repositoryInventory.warning && <p className="sidebar-empty" role="status">{repositoryInventory.warning}</p>}{nativeError && <p className="sidebar-empty" role="status">Threads unavailable. Use refresh to retry.</p>}</>}
           {!repositorySearch && favoriteRepositories.length > 0 ? <><h3 className="mt-4 mb-1 flex items-center gap-2 px-2 text-xs font-medium text-[var(--color-muted)]"><Icon name="star" size={12} />Favorites</h3>{favoriteRepositories.map(projectRow)}{recentRepositories.length > 0 && <h3 className="mt-5 mb-1 px-2 text-xs font-medium text-[var(--color-muted)]">Recent repositories</h3>}{recentRepositories.slice(0, repositoryLimit).map(projectRow)}</> : visibleRepositories.map(projectRow)}{!loaded && <div className="skeleton-lines" aria-label="Loading projects"><i /><i /><i /></div>}
           {!repositorySearch && recentRepositories.length > repositoryLimit && <button className="repository-more" onClick={() => setRepositoryLimit(limit => limit + 20)}>Show more repositories ({recentRepositories.length - repositoryLimit})</button>}
