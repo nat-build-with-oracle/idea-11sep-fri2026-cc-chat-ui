@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
   branchHint, chatForWorkspace, countTones, countsLabel, filterTerms, fleetCounts, focusedGroups, focusFromFilter,
   focusSuggestions, groupIsOpen, groupTone, hasActivity, isLively, missingFocus, nestSpaces, parseTreeState,
-  pickerGroups, spaceHasSession, toggleFocus, toneOf, withFocus, withGroup,
+  pickerGroups, resolveFollow, spaceHasSession, toggleFocus, toneOf, withFocus, withGroup,
 } from '../src/herdr-tree.ts'
 
 const ws = (id, status = 'idle', extra = {}) => ({ id, label: id, status, branch: null, agents: [], ...extra })
@@ -95,4 +95,11 @@ test('tree state parsing keeps only valid values and survives garbage', () => {
   assert.deepEqual(parseTreeState('{"groups":{"a":true,"b":"x"},"focus":["s:1","s:1",3,"s:2"],"filter":"nsm"}'), { groups: { a: true }, focus: ['s:1', 's:2'], filter: 'nsm' })
   assert.deepEqual(parseTreeState('garbage'), { groups: {}, focus: null, filter: '' })
   assert.deepEqual(parseTreeState('{"focus":"nope"}').focus, null)
+})
+
+test('a default follow list resolves names to groups, local first, and keeps unknown names visible', () => {
+  // real groups carry the bare name as label: session:laris-co is 'laris-co', machine:white-nsm is 'white-nsm'
+  const both = [...fleet, group('machine:laris-co', 'machine', [], true, 'laris-co')].map(item => ({ ...item, label: item.id.replace(/^(session|machine):/, '') }))
+  assert.deepEqual(resolveFollow(both, ['laris-co', 'white-nsm', 'machine:gb300', 'arraxccdc', 'laris-co']),
+    ['session:laris-co', 'machine:white-nsm', 'machine:gb300', 'session:arraxccdc'])
 })

@@ -15,7 +15,7 @@ desktop-verify:
 desktop-open: desktop-verify
     node scripts/verify-dmg.mjs --open
 
-# Enable NetBird access. WITH_AUTH is the safe default; PROD always enforces authentication.
+# Enable tailscale access. WITH_AUTH is the safe default; PROD always enforces authentication.
 desktop-vpn mode='WITH_AUTH':
     node scripts/desktop-vpn.mjs enable '{{ mode }}'
 

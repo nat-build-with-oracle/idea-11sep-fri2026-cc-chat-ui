@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -217,10 +218,12 @@ async function installVpn(settings, { regenerateKey, explicitAuthMode }) {
   const authMode = resolveVpnAuthMode(requestedMode, process.env.NODE_ENV);
   await assertSafeInstalledBackend(settings);
 
-  const netbird = JSON.parse((await run('netbird', ['status', '--json'])).stdout);
+  // The Mac App Store build keeps its CLI inside the app bundle.
+  const cli = existsSync('/Applications/Tailscale.app/Contents/MacOS/Tailscale') ? '/Applications/Tailscale.app/Contents/MacOS/Tailscale' : 'tailscale';
+  const self = JSON.parse((await run(cli, ['status', '--json'])).stdout).Self || {};
   const config = {
-    address: netbird.netbirdIp?.split('/')[0],
-    hostname: netbird.fqdn,
+    address: (self.TailscaleIPs || []).find((ip) => /^100\./.test(ip)),
+    hostname: String(self.DNSName || '').replace(/\.$/, ''),
     authMode,
     password: !regenerateKey && previous?.password
       ? previous.password

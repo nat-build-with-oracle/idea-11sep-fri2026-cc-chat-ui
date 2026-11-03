@@ -31,8 +31,9 @@ export async function readVpnConfig(dataDir) {
   if (!Object.values(networkInterfaces()).flat().some((item) => item?.address === raw.address && !item.internal)) {
     throw new Error('Configured VPN address is not assigned to this machine');
   }
-  if (!/^[a-z0-9-]+\.oracle\.netbird$/.test(raw.hostname)) {
-    throw new Error('Expected an exact oracle.netbird hostname');
+  // tailscale is the only VPN: its MagicDNS name, <machine>.<tailnet>.ts.net.
+  if (typeof raw.hostname !== 'string' || !/^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/.test(raw.hostname)) {
+    throw new Error('Expected an exact tailscale MagicDNS hostname (<machine>.<tailnet>.ts.net)');
   }
   if (typeof raw.password !== 'string' || !/^[A-Za-z0-9_-]{32,}$/.test(raw.password)) {
     throw new Error('VPN password must be a random URL-safe secret of at least 32 characters');

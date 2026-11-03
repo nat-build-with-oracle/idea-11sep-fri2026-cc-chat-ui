@@ -33,7 +33,7 @@ The default port is `4318`. For isolated testing, launch the executable with `CC
 
 The native host bundles `server/`, `dist/`, `package.json`, and runtime `node_modules/`. Because both launch paths execute the same backend modules, the existing Node API suite is also the desktop compatibility suite. Desktop state is stored in the app's macOS Application Support directory and logs in the standard app log directory; neither is written into the signed app bundle.
 
-The primary HTTP server remains bound to loopback, validates its `Host` header, and preserves the existing origin policy. Optional [VPN access](vpn-access.md) adds a listener on the configured NetBird address with authenticated access by default; it does not bind every interface or create a VPN tunnel. Full access still invokes Claude with bypassed permission prompts; use it only with trusted repositories.
+The primary HTTP server remains bound to loopback, validates its `Host` header, and preserves the existing origin policy. Optional [VPN access](vpn-access.md) adds a listener on the configured tailscale address with authenticated access by default; it does not bind every interface or create a VPN tunnel. Full access still invokes Claude with bypassed permission prompts; use it only with trusted repositories.
 
 ## Source alpha releases
 
