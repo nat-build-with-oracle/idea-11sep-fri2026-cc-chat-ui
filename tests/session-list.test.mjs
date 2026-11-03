@@ -28,3 +28,17 @@ test('terminal status stays separate and search handles names and absolute proje
   assert.deepEqual(sessionsForTab(rows, 'agents', 'MAW').map(item => item.id), ['Maw'])
   assert.equal(sessionsForTab(rows, 'agents', '/repo').length, 2)
 })
+
+test('herdr session filter composes with tab and search; options only list sessions with chats', async () => {
+  const { herdrSessionOptions, effectiveHerdrSession } = await import('../src/session-list.ts')
+  const mk = (id, herdrSession, name = id) => ({ ...row(id, 'interactive', null, 1, 'idle'), herdrSession, name })
+  const rows = [mk('a', 'laris-co'), mk('b', 'laris-co', 'beta'), mk('c', 'arraxccdc'), mk('d', undefined), row('s', 'saved', 'saved', 1)]
+  assert.deepEqual(sessionsForTab(rows, 'terminals', '', 'laris-co').map(item => item.id).sort(), ['a', 'b'])
+  assert.deepEqual(sessionsForTab(rows, 'terminals', 'beta', 'laris-co').map(item => item.id), ['b'])
+  assert.equal(sessionsForTab(rows, 'terminals').length, 4)
+  const options = herdrSessionOptions(rows, 'terminals')
+  assert.deepEqual(options, [{ name: 'laris-co', count: 2 }, { name: 'arraxccdc', count: 1 }])
+  assert.deepEqual(herdrSessionOptions(rows, 'saved'), [])
+  assert.equal(effectiveHerdrSession('arraxccdc', options), 'arraxccdc')
+  assert.equal(effectiveHerdrSession('gone', options), '')
+})

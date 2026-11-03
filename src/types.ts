@@ -41,5 +41,6 @@ export interface NativeSession {
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
   existingTerminal?: { sessionName: string; target: string; paneId: string; attachCommand: string };
   readOnlyReason?: string;
+  herdrSession?: string; herdrPane?: string; herdrAgent?: string;
 }
 export interface HistoryPage { messages: Message[]; nextOffset: number | null }

@@ -369,6 +369,13 @@ body { font-size: var(--ui-size); }
 .inbox-tabs button:hover { background: var(--color-hover); }
 .inbox-tabs button[aria-pressed="true"] { background: var(--color-ink); color: var(--color-canvas); font-weight: 700; }
 .inbox-tabs button span { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .85; }
+.herdr-filter { display: flex; gap: 7px; margin: -10px 0 18px; flex-wrap: wrap; align-items: center; }
+.herdr-filter-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-muted); margin-right: 2px; }
+.herdr-filter button { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 4px 11px; border-radius: 16px; font-size: 12px; color: var(--color-muted); background: var(--color-panel); }
+.herdr-filter button:hover { background: var(--color-hover); }
+.herdr-filter button[aria-pressed="true"] { background: var(--color-ink); color: var(--color-canvas); font-weight: 700; }
+.herdr-filter button span { font-size: 10px; font-variant-numeric: tabular-nums; opacity: .85; }
+.herdr-badge { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--color-panel); color: var(--color-muted); }
 .native-group { margin-top: 27px; }
 .native-group h3 { font-size: 13px; font-weight: 650; padding: 0 5px; margin-bottom: 10px; }
 .native-row { border-bottom: 0; border-radius: 16px; padding: 13px 15px; margin-bottom: 5px; min-height: 84px; gap: 15px; background: var(--color-panel); }
