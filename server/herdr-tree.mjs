@@ -48,6 +48,7 @@ export function parseWorkspaces(output) {
       status: status && STATUSES.has(status) ? status : 'unknown',
       checkoutPath: text(item.worktree?.checkout_path, 4096),
       repoKey: text(item.worktree?.repo_key, 4096),
+      linked: item.worktree?.is_linked_worktree === true,
     });
   }
   return workspaces;
@@ -104,6 +105,9 @@ export function assembleGroup(spec, workspaceOutput, agentOutput, branchByPath) 
       id: workspace.id,
       label: workspace.label,
       status: workspace.status,
+      repoKey: workspace.repoKey || null,
+      linked: workspace.linked === true,
+      checkoutPath: workspace.checkoutPath || null,
       branch: (workspace.checkoutPath && branchByPath.get(workspace.checkoutPath))
         || (agents.get(workspace.id) ?? []).map((agent) => agent.cwd && branchByPath.get(agent.cwd)).find(Boolean) || null,
       agents: (agents.get(workspace.id) ?? []).map((agent) => ({ paneId: agent.paneId, agent: agent.agent, name: agent.name, sessionId: agent.sessionId })),
