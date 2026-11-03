@@ -53,6 +53,22 @@ test('runner resumes existing sessions with safe default permission mode and pro
   assert.deepEqual(args.slice(args.indexOf('--name'), args.indexOf('--name') + 2), ['--name', 'Renamed here']);
 });
 
+test('a fork starts with --resume <source> --fork-session and keeps the new id Claude reports', async () => {
+  let args;
+  const runner = new ClaudeRunner({ spawnFn(command, passed) { args = passed; return fakeChild((child) => { child.stdout.end('{"type":"system","subtype":"init","session_id":"forked-new"}\n{"type":"result","result":"ok","is_error":false,"session_id":"forked-new"}\n'); child.emit('close', 0, null); }); } });
+  const result = await runner.run({ chatId: 'f', sessionId: null, forkFrom: 'source-id', title: 'x · fork', model: 'sonnet', permissionMode: 'default', cwd: process.cwd(), prompt: 'carry on', onUpdate() {} });
+  assert.equal(result.ok, true)
+  assert.deepEqual(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 3), ['--resume', 'source-id', '--fork-session'])
+  assert.ok(!args.includes('--session-id'), 'Claude picks the fork id')
+  assert.equal(result.sessionId, 'forked-new')
+})
+
+test('a fork whose stream never names a session does not invent one', async () => {
+  const runner = new ClaudeRunner({ spawnFn() { return fakeChild((child) => { child.stdout.end('{"type":"result","result":"ok","is_error":false}\n'); child.emit('close', 0, null); }); } });
+  const result = await runner.run({ chatId: 'g', sessionId: null, forkFrom: 'source-id', title: 't', model: 'sonnet', permissionMode: 'default', cwd: process.cwd(), prompt: 'x', onUpdate() {} });
+  assert.equal(result.sessionId, null)
+})
+
 test('runner aggregates authoritative all-model terminal usage and estimated cost', async () => {
   let finalUpdate;
   const runner = new ClaudeRunner({ spawnFn() { return fakeChild((child) => {

@@ -259,6 +259,15 @@ export class NativeSessionService {
     return session;
   }
 
+  // Forking reads the transcript and writes a new session, so a terminal may keep the original open.
+  async forkable(sessionId) {
+    if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 200) throw Object.assign(new Error('Invalid native session id'), { statusCode: 400 });
+    const session = (await this.list()).find((entry) => entry.sessionId === sessionId);
+    if (!session) throw Object.assign(new Error('Native Claude session not found'), { statusCode: 404 });
+    if (!['resume', 'resumeAfterExit', 'openTerminal'].includes(session.action)) throw Object.assign(new Error('Native Claude session cannot be forked'), { statusCode: 409 });
+    return session;
+  }
+
   async messages(sessionId, { offset = 0, limit = 100 } = {}) {
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) throw Object.assign(new Error('Invalid message offset'), { statusCode: 400 });
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw Object.assign(new Error('Message limit must be between 1 and 200'), { statusCode: 400 });

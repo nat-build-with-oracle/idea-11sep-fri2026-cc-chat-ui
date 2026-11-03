@@ -37,6 +37,7 @@ export const api = {
   nativeSessions: () => request<{ sessions: NativeSession[]; herdrSessions?: string[] }>('/native-sessions'),
   nativeHistory: (id: string, offset = 0, signal?: AbortSignal) => request<HistoryPage>(`/native-sessions/${encodeURIComponent(id)}/messages?offset=${offset}&limit=100`, 'GET', undefined, signal),
   importSession: (id: string) => request<Chat>(`/native-sessions/${encodeURIComponent(id)}/import`, 'POST'),
+  forkSession: (id: string) => request<Chat>(`/native-sessions/${encodeURIComponent(id)}/fork`, 'POST'),
   renameNative: (id: string, title: string) => request<{ session: NativeSession; chat: Chat | null }>(`/native-sessions/${encodeURIComponent(id)}`, 'PATCH', { title }),
   state: () => request<AppState>('/state'),
   saveRepositoryPreferences: (preferences: SerializedRepositoryPreferences, seedIfEmpty = false) =>
