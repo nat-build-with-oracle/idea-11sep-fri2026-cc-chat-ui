@@ -42,3 +42,13 @@ test('herdr session filter composes with tab and search; options only list sessi
   assert.equal(effectiveHerdrSession('arraxccdc', options), 'arraxccdc')
   assert.equal(effectiveHerdrSession('gone', options), '')
 })
+
+test('herdr badge helpers: info line keeps known parts in order; clicking the active session returns to All', async () => {
+  const { herdrInfoLine, toggleHerdrChoice } = await import('../src/session-list.ts')
+  assert.equal(herdrInfoLine({ herdrSession: 'laris-co', herdrAgent: 'atlas-book', herdrPane: 'wDW:p1' }), 'laris-co · atlas-book · wDW:p1')
+  assert.equal(herdrInfoLine({ herdrSession: 'laris-co', herdrPane: 'w1:p2' }), 'laris-co · w1:p2')
+  assert.equal(herdrInfoLine({}), '')
+  assert.equal(toggleHerdrChoice('', 'neo'), 'neo')
+  assert.equal(toggleHerdrChoice('neo', 'neo'), '')
+  assert.equal(toggleHerdrChoice('neo', 'nsm'), 'nsm')
+})

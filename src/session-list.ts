@@ -45,3 +45,13 @@ export function herdrSessionOptions(sessions: NativeSession[], tab: SessionTab, 
 export function effectiveHerdrSession(choice: string, options: HerdrSessionOption[]): string {
   return options.some(option => option.name === choice) ? choice : ALL_HERDR_SESSIONS
 }
+
+// "laris-co · atlas-book · wDW:p1" — whatever parts herdr reported, in that order.
+export function herdrInfoLine(session: Pick<NativeSession, 'herdrSession' | 'herdrAgent' | 'herdrPane'>): string {
+  return [session.herdrSession, session.herdrAgent, session.herdrPane].filter(Boolean).join(' · ')
+}
+
+// Clicking the badge of the active session returns to All.
+export function toggleHerdrChoice(current: string, clicked: string): string {
+  return current === clicked ? ALL_HERDR_SESSIONS : clicked
+}
