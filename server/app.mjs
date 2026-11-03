@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeRunner } from './claude-runner.mjs';
 import { NativeSessionService } from './native-sessions.mjs';
+import { annotateSessions, createHerdrSessions } from './herdr-sessions.mjs';
+import { createHerdrTree } from './herdr-tree.mjs';
 import { createClaudeEnvironment } from './claude-environment.mjs';
 import { TranscriptSync } from './transcript-sync.mjs';
 import { RepositoryService } from './repositories.mjs';
@@ -241,6 +243,8 @@ export async function createApp(options = {}) {
     } catch { throw new Error('DEV_ORIGIN must be an absolute loopback origin URL'); }
   }
   const distDir = path.resolve(options.distDir || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist'));
+  const herdr = options.herdrSessions || createHerdrSessions();
+  const herdrTree = options.herdrTree || createHerdrTree();
   const broadcaster = makeBroadcaster(store);
   const transcriptSync = new TranscriptSync({ store, nativeSessions, canSyncChat: isClaudeChat, intervalMs: options.syncIntervalMs, auditMs: options.syncAuditMs });
   const historyLoads = new Map();
@@ -256,7 +260,8 @@ export async function createApp(options = {}) {
     const snapshot = store.snapshot();
     const aliases = new Map(snapshot.nativeSessionAliases.map((alias) => [alias.sessionId, alias.title]));
     const readOnlyIds = new Set(snapshot.chats.filter(chat => !isClaudeChat(chat)).map(chat => chat.sessionId).filter(Boolean));
-    return (await nativeSessions.list()).map((session) => {
+    const herdrSnapshot = await herdr.snapshot();
+    return annotateSessions(await nativeSessions.list(), herdrSnapshot.map).map((session) => {
       const alias = session.sessionId ? aliases.get(session.sessionId) : null;
       if (readOnlyIds.has(session.sessionId)) {
         const saved = { ...session, ...(alias ? { name: alias } : {}), action: 'unavailable', terminalCommand: null, readOnlyReason: 'This session used a removed provider. Its saved conversation is read-only.' };
@@ -412,8 +417,10 @@ export async function createApp(options = {}) {
         });
       }
       if (request.method === 'GET' && url.pathname === '/api/repositories') return json(response, 200, await repositories.list());
+      if (request.method === 'GET' && url.pathname === '/api/herdr-tree') return json(response, 200, await herdrTree.snapshot());
       if (request.method === 'GET' && url.pathname === '/api/native-sessions') {
-        return json(response, 200, { sessions: await listedNativeSessions() });
+        const sessions = await listedNativeSessions();
+        return json(response, 200, { sessions, herdrSessions: (await herdr.snapshot()).sessions });
       }
       const historySessionId = nativeSessionId(url.pathname, '/messages');
       if (historySessionId && request.method === 'GET') {

@@ -28,3 +28,37 @@ test('terminal status stays separate and search handles names and absolute proje
   assert.deepEqual(sessionsForTab(rows, 'agents', 'MAW').map(item => item.id), ['Maw'])
   assert.equal(sessionsForTab(rows, 'agents', '/repo').length, 2)
 })
+
+test('herdr session filter composes with tab and search; options only list sessions with chats', async () => {
+  const { herdrSessionOptions, effectiveHerdrSession } = await import('../src/session-list.ts')
+  const mk = (id, herdrSession, name = id) => ({ ...row(id, 'interactive', null, 1, 'idle'), herdrSession, name })
+  const rows = [mk('a', 'laris-co'), mk('b', 'laris-co', 'beta'), mk('c', 'arraxccdc'), mk('d', undefined), row('s', 'saved', 'saved', 1)]
+  assert.deepEqual(sessionsForTab(rows, 'terminals', '', 'laris-co').map(item => item.id).sort(), ['a', 'b'])
+  assert.deepEqual(sessionsForTab(rows, 'terminals', 'beta', 'laris-co').map(item => item.id), ['b'])
+  assert.equal(sessionsForTab(rows, 'terminals').length, 4)
+  const options = herdrSessionOptions(rows)
+  assert.deepEqual(options, [{ name: 'laris-co', count: 2 }, { name: 'arraxccdc', count: 1 }])
+  assert.deepEqual(herdrSessionOptions(rows, 'beta'), [{ name: 'laris-co', count: 1 }])
+  assert.equal(effectiveHerdrSession('arraxccdc', options), 'arraxccdc')
+  assert.equal(effectiveHerdrSession('gone', options), '')
+})
+
+test('herdr badge helpers: info line keeps known parts in order; clicking the active session returns to All', async () => {
+  const { herdrInfoLine, toggleHerdrChoice } = await import('../src/session-list.ts')
+  assert.equal(herdrInfoLine({ herdrSession: 'laris-co', herdrAgent: 'atlas-book', herdrPane: 'wDW:p1' }), 'laris-co · atlas-book · wDW:p1')
+  assert.equal(herdrInfoLine({ herdrSession: 'laris-co', herdrPane: 'w1:p2' }), 'laris-co · w1:p2')
+  assert.equal(herdrInfoLine({}), '')
+  assert.equal(toggleHerdrChoice('', 'neo'), 'neo')
+  assert.equal(toggleHerdrChoice('neo', 'neo'), '')
+  assert.equal(toggleHerdrChoice('neo', 'nsm'), 'nsm')
+})
+
+test('a chosen herdr session lists every kind regardless of tab; counts span all kinds', async () => {
+  const { herdrSessionOptions, herdrGroups, sessionGroup } = await import('../src/session-list.ts')
+  const mk = (id, kind, herdrSession) => ({ ...row(id, kind, kind === 'background' ? 'working' : null, 1, 'idle'), herdrSession })
+  const rows = [mk('bg', 'background', 'neo'), mk('term', 'interactive', 'neo'), mk('sv', 'saved', 'neo'), mk('other', 'interactive', 'nsm'), mk('plain', 'interactive', undefined)]
+  for (const tab of ['agents', 'terminals', 'saved']) assert.deepEqual(sessionsForTab(rows, tab, '', 'neo').map(item => item.id).sort(), ['bg', 'sv', 'term'])
+  assert.deepEqual(herdrSessionOptions(rows), [{ name: 'neo', count: 3 }, { name: 'nsm', count: 1 }])
+  assert.deepEqual(sessionsForTab(rows, 'agents').map(item => item.id), ['bg'])
+  for (const item of sessionsForTab(rows, 'agents', '', 'neo')) assert.ok(herdrGroups.includes(sessionGroup(item)))
+})

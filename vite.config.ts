@@ -24,9 +24,9 @@ export default defineConfig(({ mode }) => {
     ],
     server: {
       host: '127.0.0.1',
-      port: 5173,
+      port: Number(process.env.CC_CHAT_CLIENT_PORT) || 5173,
       strictPort: true,
-      proxy: { '/api': { target: 'http://127.0.0.1:4318', changeOrigin: true } },
+      proxy: { '/api': { target: `http://127.0.0.1:${Number(process.env.CC_CHAT_API_PORT) || 4318}`, changeOrigin: true } },
     },
   }
 })

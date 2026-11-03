@@ -41,5 +41,10 @@ export interface NativeSession {
   waitingFor: string | null; action: 'openTerminal' | 'resumeAfterExit' | 'resume' | 'unavailable'; terminalCommand: string | null;
   existingTerminal?: { sessionName: string; target: string; paneId: string; attachCommand: string };
   readOnlyReason?: string;
+  herdrSession?: string; herdrPane?: string; herdrAgent?: string;
 }
 export interface HistoryPage { messages: Message[]; nextOffset: number | null }
+
+export interface HerdrTreeAgent { paneId: string; agent: string | null; name: string | null; sessionId: string | null }
+export interface HerdrTreeWorkspace { id: string; label: string; status: 'idle' | 'working' | 'blocked' | 'done' | 'unknown'; branch: string | null; agents: HerdrTreeAgent[] }
+export interface HerdrTreeGroup { id: string; label: string; kind: 'local' | 'machine'; command: string; reachable: boolean; workspaces: HerdrTreeWorkspace[] }
