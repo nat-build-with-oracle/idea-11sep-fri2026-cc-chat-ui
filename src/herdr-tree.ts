@@ -64,8 +64,12 @@ export function nestSpaces(workspaces: HerdrTreeWorkspace[]): HerdrNode[] {
 export function branchHint(workspace: HerdrTreeWorkspace): string | null {
   const branch = workspace.branch?.trim()
   if (!branch || branch === 'main' || branch === 'master') return null
-  const label = workspace.label.trim()
-  if (branch === label || label.endsWith(`/${branch}`) || branch.endsWith(`/${label}`)) return null
+  // "worktree-silver-field-7257" on branch "worktree/silver-field-7257" says the same thing twice.
+  const flat = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const label = flat(workspace.label)
+  const name = flat(branch)
+  const tail = flat(branch.split('/').pop() || branch)
+  if (name === label || label.endsWith(tail) || name.endsWith(label)) return null
   return branch
 }
 
@@ -93,9 +97,9 @@ export function isLively(group: HerdrTreeGroup, currentSessionId?: string | null
     || (group.kind === 'local' && group.workspaces.some(workspace => spaceHasSession(workspace, currentSessionId)))
 }
 
-export interface HerdrTreeState { groups: Record<string, boolean>; full: Record<string, boolean>; quiet: { local: boolean; machine: boolean } }
+export interface HerdrTreeState { groups: Record<string, boolean>; full: Record<string, boolean>; quiet: { local: boolean; machine: boolean }; filter: string }
 
-export const emptyTreeState: HerdrTreeState = { groups: {}, full: {}, quiet: { local: false, machine: false } }
+export const emptyTreeState: HerdrTreeState = { groups: {}, full: {}, quiet: { local: false, machine: false }, filter: '' }
 
 function booleans(value: unknown): Record<string, boolean> {
   const out: Record<string, boolean> = {}
@@ -108,12 +112,12 @@ function booleans(value: unknown): Record<string, boolean> {
 export function parseTreeState(raw: string): HerdrTreeState {
   try {
     const value = JSON.parse(raw)
-    return { groups: booleans(value?.groups), full: booleans(value?.full), quiet: { local: value?.quiet?.local === true, machine: value?.quiet?.machine === true } }
-  } catch { return { groups: {}, full: {}, quiet: { local: false, machine: false } } }
+    return { groups: booleans(value?.groups), full: booleans(value?.full), quiet: { local: value?.quiet?.local === true, machine: value?.quiet?.machine === true }, filter: typeof value?.filter === 'string' ? value.filter.slice(0, 120) : '' }
+  } catch { return { groups: {}, full: {}, quiet: { local: false, machine: false }, filter: '' } }
 }
 
-export function groupIsOpen(state: HerdrTreeState, group: HerdrTreeGroup, currentSessionId?: string | null): boolean {
-  return state.groups[group.id] ?? isLively(group, currentSessionId)
+export function groupIsOpen(state: HerdrTreeState, group: HerdrTreeGroup, currentSessionId?: string | null, filtering = false): boolean {
+  return state.groups[group.id] ?? (filtering || isLively(group, currentSessionId))
 }
 
 export function withGroup(state: HerdrTreeState, id: string, open: boolean): HerdrTreeState {
@@ -124,6 +128,10 @@ export function withFull(state: HerdrTreeState, id: string, full: boolean): Herd
   return { ...state, full: { ...state.full, [id]: full } }
 }
 
+export function withFilter(state: HerdrTreeState, filter: string): HerdrTreeState {
+  return { ...state, filter: filter.slice(0, 120) }
+}
+
 export function withQuiet(state: HerdrTreeState, kind: HerdrTreeGroup['kind'], show: boolean): HerdrTreeState {
   return { ...state, quiet: { ...state.quiet, [kind]: show } }
 }
@@ -132,9 +140,10 @@ export interface HerdrTier { kind: HerdrTreeGroup['kind']; shown: HerdrTreeGroup
 
 // This Mac first, then saved machines, each in herdr's own order (no reshuffling on every poll).
 // A group the user opened by hand stays in view even when it goes quiet.
-export function tiers(groups: HerdrTreeGroup[], state: HerdrTreeState, currentSessionId?: string | null): HerdrTier[] {
+export function tiers(groups: HerdrTreeGroup[], state: HerdrTreeState, currentSessionId?: string | null, filtering = false): HerdrTier[] {
   return (['local', 'machine'] as const).map(kind => {
     const all = groups.filter(group => group.kind === kind)
+    if (filtering) return { kind, shown: all, hidden: 0, quiet: 0 }
     const keep = (group: HerdrTreeGroup) => isLively(group, currentSessionId) || state.groups[group.id] === true
     const quiet = all.filter(group => !keep(group)).length
     const shown = state.quiet[kind] ? all : all.filter(keep)
@@ -152,4 +161,22 @@ export function focusSpaces(group: HerdrTreeGroup, currentSessionId?: string | n
     .filter(node => relevant(node.workspace) || node.children.length > 0)
   const count = shown.reduce((sum, node) => sum + 1 + node.children.length, 0)
   return { nodes: shown, hidden: group.workspaces.length - count }
+}
+
+// "laris-co nsm" or "laris-co, nsm": any term may match. Terms are lower-cased and de-duplicated.
+export function filterTerms(raw: string): string[] {
+  return [...new Set(raw.toLowerCase().split(/[\s,]+/).map(term => term.trim()).filter(Boolean))].slice(0, 8)
+}
+
+// A group matches by its name or its herdr session (so "laris-co" finds m5's laris-co and
+// white-laris-co alike) and then shows every space. Otherwise it stays only for the spaces whose
+// name or branch matches, and shows just those.
+export function filterGroups(groups: HerdrTreeGroup[], terms: string[]): HerdrTreeGroup[] {
+  if (!terms.length) return groups
+  const hit = (text?: string | null) => Boolean(text) && terms.some(term => text!.toLowerCase().includes(term))
+  return groups.flatMap(group => {
+    if (hit(group.label) || hit(group.session)) return [group]
+    const workspaces = group.workspaces.filter(workspace => hit(workspace.label) || hit(workspace.branch))
+    return workspaces.length ? [{ ...group, workspaces }] : []
+  })
 }

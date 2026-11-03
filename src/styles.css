@@ -646,6 +646,10 @@ body { font-size: var(--ui-size); }
 .herdr-more { margin: 2px 0 4px; padding: 7px 8px; }
 .herdr-group-more { display: block; min-height: 28px; margin: 0 0 2px; padding: 0 8px 0 49px; border-radius: 7px; color: var(--color-accent); font-size: 12px; text-align: left; }
 .herdr-group-more:hover { background: var(--color-hover); }
+.herdr-filter-box { position: relative; margin: 0 8px 8px; }
+.herdr-filter-box .repository-filter { width: 100%; margin: 0; padding-right: 34px; }
+.herdr-filter-clear { position: absolute; top: 50%; right: 4px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: var(--color-muted); transform: translateY(-50%); }
+.herdr-filter-clear:hover { background: var(--color-hover); color: var(--color-ink); }
 .herdr-dot { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 12px; width: 12px; height: 12px; }
 .herdr-dot::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--color-disabled-ink); }
 .herdr-dot.tone-idle::before { box-sizing: border-box; border: 1.5px solid var(--color-muted); background: transparent; }
@@ -660,7 +664,7 @@ body { font-size: var(--ui-size); }
 .herdr-pip.tone-needs { color: var(--color-warning); }
 .herdr-pip.tone-working { color: var(--color-accent); }
 .herdr-pip.tone-done { color: var(--color-success); }
-@media (max-width: 759px), (pointer: coarse) { .herdr-head-toggle, .herdr-group-head, .herdr-space, .herdr-more, .herdr-group-more { min-height: 44px; } .herdr-space-action { opacity: 1; } }
+@media (max-width: 759px), (pointer: coarse) { .herdr-head-toggle, .herdr-group-head, .herdr-space, .herdr-more, .herdr-group-more { min-height: 44px; } .herdr-space-action { opacity: 1; } .herdr-filter-clear { right: 2px; width: 40px; height: 40px; } }
 
 /* The brand row keeps its search button in view on a narrow sidebar. */
 .sidebar { container: sidebar / inline-size; }
