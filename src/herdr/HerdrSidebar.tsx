@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Icon } from '../Icon'
 import {
-  fleetCounts, focusedGroups, focusFromFilter, focusSuggestions, groupIsOpen, groupTone, hasActivity, missingFocus,
-  resolveFollow, toggleFocus, withFocus, withGroup, type HerdrTreeState,
+  fleetCounts, focusedGroups, focusFromFilter, focusSuggestions, groupTone, hasActivity, missingFocus, openGroupId,
+  resolveFollow, toggleFocus, toggleOpen, withFocus, type HerdrTreeState,
 } from '../herdr-tree'
 import type { NativeSession } from '../types'
 import { FollowChip, OutlineChip, SuggestChip } from './HerdrChip'
@@ -42,6 +42,7 @@ export default function HerdrSidebar({ nativeSessions, open, onToggleSection, st
   const focus = state.focus ?? []
   const followed = groups ? focusedGroups(groups, focus) : []
   const gone = groups ? missingFocus(groups, focus) : []
+  const openId = openGroupId(state, followed)
   const suggestions = groups ? focusSuggestions(groups, focus, currentSessionId, focus.length ? 3 : 6) : []
   const toggle = (id: string) => onState(toggleFocus(state, id))
   const suggestionChips = suggestions.map(group => <SuggestChip key={group.id} tone={groupTone(group)} label={group.label} onFollow={() => toggle(group.id)} />)
@@ -75,11 +76,8 @@ export default function HerdrSidebar({ nativeSessions, open, onToggleSection, st
         {!picking && focus.length > 0 && suggestions.length > 0 && <div aria-label="Busy sessions you do not follow" className="mx-2 -mt-0.5 mb-2.5 flex flex-wrap items-center gap-1.5">
           <span className="mr-0.5 text-xs text-[var(--color-muted)]">Also busy</span>{suggestionChips}
         </div>}
-        {followed.map(group => {
-          const isOpen = groupIsOpen(state, group)
-          return <HerdrGroup key={group.id} group={group} open={isOpen} onToggle={() => onState(withGroup(state, group.id, !isOpen))}
-            nativeSessions={nativeSessions} currentSessionId={currentSessionId} onOpen={onOpen} onCopy={onCopy} />
-        })}
+        {followed.map(group => <HerdrGroup key={group.id} group={group} open={group.id === openId} onToggle={() => onState(toggleOpen(state, followed, group.id))}
+          nativeSessions={nativeSessions} currentSessionId={currentSessionId} onOpen={onOpen} onCopy={onCopy} />)}
       </>)}
   </section>
 }

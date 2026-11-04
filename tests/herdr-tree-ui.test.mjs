@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   branchHint, chatForWorkspace, countTones, countsLabel, filterTerms, fleetCounts, focusedGroups, focusFromFilter,
-  focusSuggestions, groupIsOpen, groupTone, hasActivity, isLively, missingFocus, nestSpaces, parseTreeState,
-  pickerGroups, resolveFollow, spaceHasSession, toggleFocus, toneOf, withFocus, withGroup,
+  focusSuggestions, groupTone, hasActivity, isLively, missingFocus, nestSpaces, openGroupId, parseTreeState,
+  pickerGroups, resolveFollow, spaceHasSession, toggleFocus, toggleOpen, toneOf, withFocus, withOpen,
 } from '../src/herdr-tree.ts'
 
 const ws = (id, status = 'idle', extra = {}) => ({ id, label: id, status, branch: null, agents: [], ...extra })
@@ -61,8 +61,25 @@ test('only the followed sessions show, This Mac first, and a stopped one is repo
   assert.deepEqual(focusedGroups(fleet, null), [])
   assert.deepEqual(focusedGroups(fleet, ['machine:white-nsm', 'session:nsm']).map(item => item.id), ['session:nsm', 'machine:white-nsm'])
   assert.deepEqual(missingFocus(fleet, ['session:nsm', 'session:gone']), ['session:gone'])
-  assert.equal(groupIsOpen(parseTreeState(''), fleet[0]), true)
-  assert.equal(groupIsOpen(withGroup(parseTreeState(''), fleet[0].id, false), fleet[0]), false)
+})
+
+test('one followed group is open at a time: the first until one is clicked, none once it is folded', () => {
+  const followed = focusedGroups(fleet, ['machine:white-nsm', 'session:nsm', 'session:laris-co'])
+  let state = withFocus(parseTreeState(''), followed.map(item => item.id))
+  assert.equal(openGroupId(state, followed), 'session:laris-co')
+  assert.equal(openGroupId(state, []), null)
+  state = toggleOpen(state, followed, 'machine:white-nsm')
+  assert.equal(openGroupId(state, followed), 'machine:white-nsm')
+  state = toggleOpen(state, followed, 'machine:white-nsm')
+  assert.equal(openGroupId(state, followed), null)
+  state = toggleOpen(state, followed, 'session:nsm')
+  assert.equal(openGroupId(state, followed), 'session:nsm')
+  // the open group stops being followed: the first one takes over
+  assert.equal(openGroupId(withOpen(state, 'session:gone'), followed), 'session:laris-co')
+  // a group you start following opens; unfollowing leaves the choice alone
+  state = toggleFocus(state, 'session:neo')
+  assert.equal(state.open, 'session:neo')
+  assert.equal(toggleFocus(state, 'session:nsm').open, 'session:neo')
 })
 
 test('follow and unfollow keep one entry per group', () => {
@@ -92,9 +109,10 @@ test('the picker finds a session on every machine; an old filter becomes the fir
 })
 
 test('tree state parsing keeps only valid values and survives garbage', () => {
-  assert.deepEqual(parseTreeState('{"groups":{"a":true,"b":"x"},"focus":["s:1","s:1",3,"s:2"],"filter":"nsm"}'), { groups: { a: true }, focus: ['s:1', 's:2'], filter: 'nsm' })
-  assert.deepEqual(parseTreeState('garbage'), { groups: {}, focus: null, filter: '' })
-  assert.deepEqual(parseTreeState('{"focus":"nope"}').focus, null)
+  assert.deepEqual(parseTreeState('{"groups":{"a":true},"focus":["s:1","s:1",3,"s:2"],"filter":"nsm","open":"s:2"}'), { focus: ['s:1', 's:2'], filter: 'nsm', open: 's:2' })
+  assert.deepEqual(parseTreeState('garbage'), { focus: null, filter: '' })
+  assert.deepEqual(parseTreeState('{"focus":"nope","open":5}'), { focus: null, filter: '' })
+  assert.equal(parseTreeState('{"open":null}').open, null)
 })
 
 test('a default follow list resolves names to groups, local first, and keeps unknown names visible', () => {
