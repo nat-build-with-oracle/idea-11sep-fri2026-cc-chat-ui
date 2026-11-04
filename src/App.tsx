@@ -252,7 +252,7 @@ export default function App() {
     })()
     return () => { alive = false }
   }, [route, connectionAttempt])
-  useEffect(() => { document.title = `${currentTitle} — ARRA Claude Code` }, [currentTitle])
+  useEffect(() => { document.title = `${currentTitle} — ARRA Oracles` }, [currentTitle])
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 2600); return () => clearTimeout(timer) }, [toast])
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -648,7 +648,7 @@ export default function App() {
   return <div className={`workspace ${sidebarHidden ? 'sidebar-hidden' : ''} ${preview ? 'preview-mode' : ''}`}>
     {sidebarOpen && <button className="sidebar-scrim" aria-label="Close sidebar" onClick={() => setSidebarOpen(false)} />}
     <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} aria-label="Workspace navigation">
-      <div className="brand-row"><button className="brand" onClick={() => newChat()}><ClaudeMark /><span>ARRA Claude Code</span></button><IconButton icon="search" label="Search projects and Oracles (⌘K)" onClick={openProjectSearch} /><span className="mobile-only"><IconButton icon="close" label="Close sidebar" onClick={() => setSidebarOpen(false)} /></span></div>
+      <div className="brand-row"><button className="brand" onClick={() => newChat()}><ClaudeMark /><span>ARRA Oracles</span></button><IconButton icon="search" label="Search projects and Oracles (⌘K)" onClick={openProjectSearch} /><span className="mobile-only"><IconButton icon="close" label="Close sidebar" onClick={() => setSidebarOpen(false)} /></span></div>
       <div className="primary-nav">
         <button className={`new-chat ${route.view === 'new' ? 'selected' : ''}`} aria-current={route.view === 'new' ? 'page' : undefined} onClick={() => newChat()}><Icon name="new" size={21} /><span>New chat</span><span className="shortcut">⇧⌘O</span></button>
         {!preview && <>
