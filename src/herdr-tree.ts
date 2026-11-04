@@ -97,17 +97,10 @@ export function isLively(group: HerdrTreeGroup, currentSessionId?: string | null
 }
 
 // `focus` lists the groups the sidebar follows, by id; null until the first choice is made.
-// `groups` remembers a followed group folded by hand. `filter` is only read once, to turn a filter
-// typed before the picker existed into the first choice.
-export interface HerdrTreeState { groups: Record<string, boolean>; focus: string[] | null; filter: string }
-
-function booleans(value: unknown): Record<string, boolean> {
-  const out: Record<string, boolean> = {}
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    for (const [id, flag] of Object.entries(value).slice(0, 500)) if (typeof flag === 'boolean') out[id] = flag
-  }
-  return out
-}
+// `open` is the one followed group shown unfolded (an accordion): missing until one is clicked, which
+// leaves the first one open; null once the open one was folded by hand. `filter` is only read once, to
+// turn a filter typed before the picker existed into the first choice.
+export interface HerdrTreeState { focus: string[] | null; filter: string; open?: string | null }
 
 export function parseTreeState(raw: string): HerdrTreeState {
   try {
@@ -115,26 +108,37 @@ export function parseTreeState(raw: string): HerdrTreeState {
     const focus = Array.isArray(value?.focus)
       ? [...new Set<string>((value.focus as unknown[]).filter((id): id is string => typeof id === 'string' && id.length <= 200))].slice(0, 60)
       : null
-    return { groups: booleans(value?.groups), focus, filter: typeof value?.filter === 'string' ? value.filter.slice(0, 120) : '' }
-  } catch { return { groups: {}, focus: null, filter: '' } }
+    const state: HerdrTreeState = { focus, filter: typeof value?.filter === 'string' ? value.filter.slice(0, 120) : '' }
+    if (value?.open === null || (typeof value?.open === 'string' && value.open.length <= 200)) state.open = value.open
+    return state
+  } catch { return { focus: null, filter: '' } }
 }
 
-// A followed group opens unless it was folded by hand.
-export function groupIsOpen(state: HerdrTreeState, group: HerdrTreeGroup): boolean {
-  return state.groups[group.id] ?? true
+// One followed group is unfolded at a time: the one clicked last, the first until then, and none
+// once the open one is folded by hand. An open group that is no longer followed hands over to the first.
+export function openGroupId(state: HerdrTreeState, followed: HerdrTreeGroup[]): string | null {
+  if (state.open === null) return null
+  return followed.find(group => group.id === state.open)?.id ?? followed[0]?.id ?? null
 }
 
-export function withGroup(state: HerdrTreeState, id: string, open: boolean): HerdrTreeState {
-  return { ...state, groups: { ...state.groups, [id]: open } }
+export function withOpen(state: HerdrTreeState, id: string | null): HerdrTreeState {
+  return { ...state, open: id }
+}
+
+// Clicking a group opens it and folds the rest; clicking the open one folds it.
+export function toggleOpen(state: HerdrTreeState, followed: HerdrTreeGroup[], id: string): HerdrTreeState {
+  return withOpen(state, openGroupId(state, followed) === id ? null : id)
 }
 
 export function withFocus(state: HerdrTreeState, focus: string[]): HerdrTreeState {
   return { ...state, focus: [...new Set(focus)].slice(0, 60) }
 }
 
+// A group you start following opens, folding the others.
 export function toggleFocus(state: HerdrTreeState, id: string): HerdrTreeState {
   const focus = state.focus ?? []
-  return withFocus(state, focus.includes(id) ? focus.filter(item => item !== id) : [...focus, id])
+  if (focus.includes(id)) return withFocus(state, focus.filter(item => item !== id))
+  return withOpen(withFocus(state, [...focus, id]), id)
 }
 
 // The groups the sidebar follows, This Mac first, each kind in herdr's own order.

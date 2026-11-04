@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { chatForWorkspace, countTones, nestSpaces, spaceHasSession } from '../herdr-tree'
 import type { HerdrTreeGroup, HerdrTreeWorkspace, NativeSession } from '../types'
 import HerdrSpace from './HerdrSpace'
@@ -15,13 +16,21 @@ interface Props {
 }
 
 // A followed herdr session or machine. Linked worktrees nest under their main checkout on a 1px guide.
+// Only one group is open at a time, so opening one can fold a long one above it: the head that just
+// opened is scrolled back into view.
 export default function HerdrGroup({ group, open, onToggle, nativeSessions, currentSessionId, onOpen, onCopy }: Props) {
   const spaces = group.workspaces.length
   const noun = spaces === 1 ? 'space' : 'spaces'
+  const head = useRef<HTMLButtonElement>(null)
+  const wasOpen = useRef(open)
+  useLayoutEffect(() => {
+    if (open && !wasOpen.current) head.current?.scrollIntoView({ block: 'nearest' })
+    wasOpen.current = open
+  }, [open])
   const row = (workspace: HerdrTreeWorkspace, child = false) => <HerdrSpace key={workspace.id} group={group} workspace={workspace} child={child}
     current={spaceHasSession(workspace, currentSessionId)} chat={chatForWorkspace(group, workspace, nativeSessions)} onOpen={onOpen} onCopy={onCopy} />
   return <div>
-    <button type="button" aria-expanded={open} onClick={onToggle} title={`${group.command} · ${spaces} ${noun}${group.reachable ? '' : ' · not reachable'}`}
+    <button ref={head} type="button" aria-expanded={open} onClick={onToggle} title={`${group.command} · ${spaces} ${noun}${group.reachable ? '' : ' · not reachable'}`}
       className={cx('flex min-h-[34px] w-full items-center gap-2 rounded-[7px] px-2 text-left text-sm font-semibold text-[var(--color-ink)]', touch, rowHover)}>
       <Chevron open={open} />
       <span className={cx('min-w-0 flex-1 truncate', !group.reachable && 'font-medium text-[var(--color-muted)]')}>{group.label}</span>
