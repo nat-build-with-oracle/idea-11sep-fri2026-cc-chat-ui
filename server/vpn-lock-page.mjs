@@ -259,7 +259,7 @@ export function renderVpnLockPage({ nonce, authenticated = false, noAuth = false
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <meta name="referrer" content="no-referrer" />
-    <title>Private access · ARRA Claude Code</title>
+    <title>Private access · ARRA Oracles</title>
     <style nonce="${safeNonce}">
       :root {
         color-scheme: light;
@@ -606,9 +606,9 @@ export function renderVpnLockPage({ nonce, authenticated = false, noAuth = false
   <body>
     <div class="shell">
       <header>
-        <a class="brand" href="/" aria-label="ARRA Claude Code home">
+        <a class="brand" href="/" aria-label="ARRA Oracles home">
           ${arraMark()}
-          <span>ARRA Claude Code</span>
+          <span>ARRA Oracles</span>
         </a>
       </header>
 
